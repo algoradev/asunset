@@ -1,0 +1,59 @@
+# Compose overlay that replaces asunset's demo `api` service with this
+# product's `product-api`. All other platform services (postgres,
+# keycloak, openfga, vector, caddy, keycloak-theme-build) come straight
+# from vendor/asunset/compose.yml unchanged.
+#
+# Usage (from your consumer repo root):
+#
+#   docker compose \
+#     -f vendor/asunset/compose.yml \
+#     -f vendor/asunset/compose.tailscale.yml \
+#     -f compose.product.yml \
+#     up -d
+
+services:
+
+  # The demo Notes service is replaced by the product API below.
+  # Disabling via `profiles` so compose won't try to build or run it.
+  api:
+    profiles: ["donotstart"]
+
+  product-api:
+    build:
+      # Context is the consumer repo root so the image can copy both
+      # vendor/asunset/packages/asunset_core and vendor/asunset/apps/api.
+      context: .
+      dockerfile: apps/product-api/Dockerfile
+    restart: unless-stopped
+    environment:
+      # Same env var contract as asunset_api's demo service.
+      PRODUCT_ENV: ${PRODUCT_ENV:-dev}
+      APP_DB_URL: postgresql+asyncpg://${APP_DB_USER}:${APP_DB_PASSWORD}@postgres:5432/${APP_DB_NAME}
+      APP_ADMIN_DB_URL: postgresql+asyncpg://${APP_DB_OWNER}:${APP_DB_OWNER_PASSWORD}@postgres:5432/${APP_DB_NAME}
+      APP_DB_USER: ${APP_DB_USER}
+      KEYCLOAK_ISSUER: ${KEYCLOAK_PUBLIC_URL}/realms/${KEYCLOAK_REALM}
+      KEYCLOAK_INTERNAL_ISSUER: ${KEYCLOAK_INTERNAL_URL}/realms/${KEYCLOAK_REALM}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      KEYCLOAK_API_CLIENT_ID: ${KEYCLOAK_API_CLIENT_ID}
+      KEYCLOAK_API_CLIENT_SECRET: ${KEYCLOAK_API_CLIENT_SECRET}
+      OPENFGA_API_URL: ${OPENFGA_API_URL}
+      OPENFGA_STORE_NAME: ${OPENFGA_STORE_NAME}
+      OPENFGA_API_KEY: ${OPENFGA_API_KEY}
+      API_CORS_ORIGINS: ${API_CORS_ORIGINS}
+      API_LOG_LEVEL: ${API_LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      keycloak-init:
+        condition: service_completed_successfully
+      openfga:
+        condition: service_started
+    networks: [asunset]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s

@@ -1,0 +1,42 @@
+[project]
+name = "product-api"
+version = "0.1.0"
+description = "Example product backend built on asunset."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+
+dependencies = [
+  # asunset_core: JWT validation, Authorizer port, AuditSink, RLS,
+  # shared Base with platform tables (org/team/user/member/audit_event).
+  "asunset-core",
+  # asunset_api: ships the platform HTTP surface (orgs, teams, users,
+  # audit, /platform/bootstrap). Your FastAPI app mounts these routers
+  # alongside your product ones.
+  "asunset-api",
+
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "pydantic>=2.8",
+  "pydantic-settings>=2.4",
+  "sqlalchemy[asyncio]>=2.0",
+  "asyncpg>=0.29",
+  "alembic>=1.13",
+  "pyjwt[crypto]>=2.9",
+  "httpx>=0.27",
+  "openfga-sdk>=0.9",
+  "structlog>=24.4",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/product_api"]
+
+# Paths assume this file lives at apps/product-api/ in a consumer repo
+# that has vendored asunset at vendor/asunset/.
+[tool.uv.sources]
+asunset-core = { path = "../../vendor/asunset/packages/asunset_core", editable = true }
+asunset-api = { path = "../../vendor/asunset/apps/api", editable = true }

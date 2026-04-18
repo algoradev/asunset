@@ -1,0 +1,29 @@
+model
+  schema 1.1
+
+// Platform types — these are imported from asunset_core.fga.model.PLATFORM_TYPES
+// and are included automatically when you call build_model(). Documented
+// here for reference only; don't redeclare them in your product's fga_model.py.
+
+type user
+
+type organization
+  relations
+    define admin: [user]
+    define member: [user]
+
+type team
+  relations
+    define org: [organization]
+    define admin: [user]
+    define member: [user]
+
+// ----- Product-specific types (edit these) -----
+
+type report
+  relations
+    define owner: [user]
+    define team: [team]
+    define viewer: [user, team#member, organization#member]
+    define can_view: owner or viewer
+    define can_delete: owner

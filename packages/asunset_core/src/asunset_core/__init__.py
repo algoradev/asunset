@@ -42,6 +42,7 @@ from asunset_core.db.session import (
     session_scope,
 )
 from asunset_core.fga.bootstrap import bootstrap_openfga
+from asunset_core.fga.model import PLATFORM_TYPES, build_model
 from asunset_core.logging import configure_logging, get_logger
 from asunset_core.middleware.correlation import CorrelationIdMiddleware
 
@@ -84,4 +85,6 @@ __all__ = [
     "configure_logging",
     "get_logger",
     "bootstrap_openfga",
+    "PLATFORM_TYPES",
+    "build_model",
 ]
