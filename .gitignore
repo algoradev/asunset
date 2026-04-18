@@ -1,0 +1,40 @@
+# env
+.env
+.env.*
+!.env.example
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+build/
+
+# node
+node_modules/
+.pnpm-store/
+*.log
+.vite/
+
+# build
+apps/web/dist/
+apps/api/dist/
+
+# go binaries (built on demand; cross-compiled releases go to dist/)
+tools/deploy/asunset-deploy
+tools/deploy/dist/
+
+# local data / state
+.volumes/
+*.sqlite
+*.db
+
+# editor
+.vscode/
+.idea/
+*.swp
+.DS_Store

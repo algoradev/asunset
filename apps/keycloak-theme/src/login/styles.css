@@ -1,0 +1,244 @@
+/* Self-hosted fonts — same rationale as the main web app: on-prem,
+ * VPN-gated, no third-party dependencies. */
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-sans/700.css";
+
+/* Asunset login theme — shadcn-style palette matching the main web app. */
+
+:root {
+  --asunset-bg: hsl(0 0% 100%);
+  --asunset-fg: hsl(222.2 84% 4.9%);
+  --asunset-muted: hsl(215.4 16.3% 46.9%);
+  --asunset-card: hsl(0 0% 100%);
+  --asunset-border: hsl(214.3 31.8% 91.4%);
+  --asunset-input: hsl(214.3 31.8% 91.4%);
+  --asunset-primary: hsl(222.2 47.4% 11.2%);
+  --asunset-primary-foreground: hsl(210 40% 98%);
+  --asunset-destructive: hsl(0 84.2% 60.2%);
+  --asunset-ring: hsl(222.2 84% 4.9%);
+  --asunset-radius: 0.5rem;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  background: var(--asunset-bg);
+  color: var(--asunset-fg);
+  font-family: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.asunset-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 2rem 1rem;
+}
+
+.asunset-card {
+  width: 100%;
+  max-width: 26rem;
+  background: var(--asunset-card);
+  border: 1px solid var(--asunset-border);
+  border-radius: var(--asunset-radius);
+  padding: 2rem;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+}
+
+.asunset-brand {
+  text-align: center;
+  margin-bottom: 1.25rem;
+}
+
+.asunset-brand__mark {
+  display: inline-block;
+  width: 2.25rem;
+  height: 2.25rem;
+  margin-bottom: 0.75rem;
+  border-radius: calc(var(--asunset-radius) - 2px);
+  background: linear-gradient(135deg, #0f172a 0%, #475569 100%);
+}
+
+.asunset-brand__title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.asunset-brand__subtitle {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+  color: var(--asunset-muted);
+}
+
+.asunset-header {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 1.25rem 0 0.25rem;
+  text-align: center;
+}
+
+.asunset-sub {
+  font-size: 0.875rem;
+  color: var(--asunset-muted);
+  text-align: center;
+  margin-bottom: 1.25rem;
+}
+
+.asunset-field {
+  margin-bottom: 0.875rem;
+}
+
+.asunset-label {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  margin-bottom: 0.375rem;
+}
+
+.asunset-input {
+  display: block;
+  width: 100%;
+  height: 2.5rem;
+  padding: 0 0.75rem;
+  font-size: 0.875rem;
+  color: var(--asunset-fg);
+  background: var(--asunset-bg);
+  border: 1px solid var(--asunset-input);
+  border-radius: calc(var(--asunset-radius) - 2px);
+  transition: border-color 120ms, box-shadow 120ms;
+}
+
+.asunset-input:focus {
+  outline: none;
+  border-color: var(--asunset-ring);
+  box-shadow: 0 0 0 3px hsl(222.2 84% 4.9% / 0.12);
+}
+
+.asunset-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--asunset-muted);
+  user-select: none;
+}
+
+.asunset-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0.5rem 0 1rem;
+}
+
+.asunset-link {
+  color: var(--asunset-fg);
+  text-decoration: none;
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.asunset-link:hover {
+  text-decoration: underline;
+}
+
+.asunset-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 2.5rem;
+  padding: 0 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--asunset-primary-foreground);
+  background: var(--asunset-primary);
+  border: none;
+  border-radius: calc(var(--asunset-radius) - 2px);
+  cursor: pointer;
+  transition: opacity 120ms;
+}
+
+.asunset-button:hover {
+  opacity: 0.9;
+}
+
+.asunset-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.asunset-alert {
+  padding: 0.75rem 0.875rem;
+  margin-bottom: 1rem;
+  border-radius: calc(var(--asunset-radius) - 2px);
+  font-size: 0.8125rem;
+  border: 1px solid transparent;
+}
+
+.asunset-alert--error {
+  color: hsl(0 72% 38%);
+  background: hsl(0 84% 96%);
+  border-color: hsl(0 84% 90%);
+}
+
+.asunset-alert--warning {
+  color: hsl(35 85% 32%);
+  background: hsl(45 100% 96%);
+  border-color: hsl(45 100% 88%);
+}
+
+.asunset-alert--info {
+  color: hsl(220 60% 40%);
+  background: hsl(220 100% 97%);
+  border-color: hsl(220 85% 90%);
+}
+
+.asunset-footer {
+  margin-top: 1.5rem;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--asunset-muted);
+}
+
+.asunset-providers {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--asunset-border);
+}
+
+.asunset-providers__title {
+  font-size: 0.75rem;
+  color: var(--asunset-muted);
+  text-align: center;
+  margin-bottom: 0.75rem;
+}
+
+.asunset-provider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 2.5rem;
+  padding: 0 1rem;
+  font-size: 0.875rem;
+  color: var(--asunset-fg);
+  background: var(--asunset-bg);
+  border: 1px solid var(--asunset-border);
+  border-radius: calc(var(--asunset-radius) - 2px);
+  text-decoration: none;
+  margin-bottom: 0.5rem;
+}
+
+.asunset-provider:hover {
+  background: hsl(210 40% 97%);
+}

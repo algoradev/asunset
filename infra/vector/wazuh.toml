@@ -1,0 +1,17 @@
+# SIEM overlay: forwards classified events to a Wazuh manager via syslog.
+# Loaded only when `docker compose -f compose.yml -f compose.wazuh.yml up`
+# mounts this file into Vector's --config-dir.
+#
+# Wazuh ingestion here is the reference path. Switching to Graylog, ELK,
+# Splunk, etc. is a sink swap — inputs stay pointed at "classified".
+# See docs/swap-siem.md.
+
+[sinks.wazuh_syslog]
+type = "socket"
+inputs = ["classified"]
+mode = "tcp"
+address = "${WAZUH_HOST}:${WAZUH_PORT}"
+encoding.codec = "json"
+
+  [sinks.wazuh_syslog.framing]
+  method = "newline_delimited"

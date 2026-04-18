@@ -1,0 +1,24 @@
+# Dev overlay: hot reload, source mounts, seed data.
+# Usage: docker compose -f compose.yml -f compose.dev.yml up
+
+services:
+  api:
+    build:
+      target: dev
+    command: ["uvicorn", "asunset_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    environment:
+      ASUNSET_ENV: dev
+      API_LOG_LEVEL: debug
+    volumes:
+      - ./apps/api/src:/app/src
+      - ./apps/api/tests:/app/tests
+
+  web:
+    build:
+      target: dev
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./apps/web:/app
+      - /app/node_modules

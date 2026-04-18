@@ -1,0 +1,279 @@
+# Base stack. Runs with `docker compose up`.
+# Dev ergonomics (hot reload, seed data) live in compose.dev.yml.
+# SIEM demo (Wazuh) lives in compose.wazuh.yml.
+
+name: asunset
+
+networks:
+  asunset:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  keycloak-themes:
+  keycloak-providers:
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_SUPERUSER}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
+      # init script (mounted below) creates the three logical DBs + per-service roles
+      APP_DB_NAME: ${APP_DB_NAME}
+      APP_DB_OWNER: ${APP_DB_OWNER}
+      APP_DB_OWNER_PASSWORD: ${APP_DB_OWNER_PASSWORD}
+      APP_DB_USER: ${APP_DB_USER}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+      KC_DB_NAME: ${KC_DB_NAME}
+      KC_DB_USER: ${KC_DB_USER}
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD}
+      FGA_DB_NAME: ${FGA_DB_NAME}
+      FGA_DB_USER: ${FGA_DB_USER}
+      FGA_DB_PASSWORD: ${FGA_DB_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    networks: [asunset]
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_SUPERUSER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot builder: compiles the Keycloakify theme into a JAR and drops
+  # it into the keycloak-providers volume. Keycloak waits for it via
+  # service_completed_successfully.
+  keycloak-theme-build:
+    build:
+      context: ./apps/keycloak-theme
+    volumes:
+      - keycloak-providers:/out
+    networks: [asunset]
+    restart: "no"
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/${KC_DB_NAME}
+      KC_DB_USERNAME: ${KC_DB_USER}
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD}
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+      # Event listener SPI: jboss-logging sends events to stdout, which Vector tails.
+      # Operators swap in their own listener (e.g. Kafka) in prod.
+      KC_SPI_EVENTS_LISTENER: jboss-logging
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak-theme-build:
+        condition: service_completed_successfully
+    volumes:
+      - ./infra/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+      - keycloak-themes:/opt/keycloak/themes
+      - keycloak-providers:/opt/keycloak/providers:ro
+    networks: [asunset]
+    ports:
+      - "8080:8080"
+    healthcheck:
+      # Keycloak 25 ships with no curl/wget/nc. Use bash's built-in TCP
+      # to probe the management port (9000, where health endpoints live
+      # when KC_HEALTH_ENABLED=true). Port-open is a proxy for readiness;
+      # it opens only after the realm import completes.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/9000"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  # One-shot: rotates the asunset-api client secret to the value in .env
+  # after Keycloak finishes importing the realm. Realm export no longer
+  # carries a literal secret — the committed JSON is now safe to share.
+  keycloak-init:
+    image: quay.io/keycloak/keycloak:25.0
+    restart: "no"
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -eu
+        /opt/keycloak/bin/kcadm.sh config credentials \
+          --server http://keycloak:8080 \
+          --realm master \
+          --user "$${KEYCLOAK_ADMIN}" \
+          --password "$${KEYCLOAK_ADMIN_PASSWORD}"
+        CLIENT_UUID=$$(/opt/keycloak/bin/kcadm.sh get clients -r "$${KEYCLOAK_REALM}" -q clientId=asunset-api --fields id --format csv --noquotes | tr -d '\r\n')
+        if [ -z "$${CLIENT_UUID}" ]; then
+          echo "keycloak-init: asunset-api client not found" >&2
+          exit 1
+        fi
+        /opt/keycloak/bin/kcadm.sh update "clients/$${CLIENT_UUID}" \
+          -r "$${KEYCLOAK_REALM}" \
+          -s "secret=$${KEYCLOAK_API_CLIENT_SECRET}"
+        echo "keycloak-init: asunset-api secret synced from env"
+
+        # Realm-level HIPAA/NYDFS knobs: --import-realm uses
+        # IGNORE_EXISTING on re-boots, so updates to realm-export.json
+        # don't propagate into an already-imported realm. Push them via
+        # kcadm so they land on every start. Idempotent.
+        /opt/keycloak/bin/kcadm.sh update "realms/$${KEYCLOAK_REALM}" \
+          -s "ssoSessionIdleTimeout=900" \
+          -s "ssoSessionMaxLifespan=14400" \
+          -s "otpPolicyType=totp" \
+          -s "otpPolicyAlgorithm=HmacSHA1" \
+          -s "otpPolicyDigits=6" \
+          -s "otpPolicyPeriod=30" \
+          -s "otpPolicyLookAheadWindow=1"
+        echo "keycloak-init: realm session + OTP policy updated"
+
+        # Enforce TOTP on every user holding platform_admin. HIPAA
+        # §164.312(a)(2)(i) + NYDFS 500.12 both treat MFA on privileged
+        # accounts as table stakes. Idempotent — setting an already-set
+        # required action is a no-op.
+        ADMIN_USERS=$$(/opt/keycloak/bin/kcadm.sh get "roles/platform_admin/users" -r "$${KEYCLOAK_REALM}" --fields username --format csv --noquotes 2>/dev/null | tr -d '\r"')
+        for U in $$ADMIN_USERS; do
+          [ -z "$$U" ] && continue
+          # NB: can't use the name UID — readonly bash built-in.
+          USER_UID=$$(/opt/keycloak/bin/kcadm.sh get users -r "$${KEYCLOAK_REALM}" -q username=$$U --fields id --format csv --noquotes | tr -d '\r\n"')
+          [ -z "$$USER_UID" ] && continue
+          /opt/keycloak/bin/kcadm.sh update "users/$$USER_UID" \
+            -r "$${KEYCLOAK_REALM}" \
+            -s 'requiredActions=["CONFIGURE_TOTP"]' 2>/dev/null || true
+          echo "keycloak-init: TOTP required for $$U"
+        done
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      KEYCLOAK_API_CLIENT_SECRET: ${KEYCLOAK_API_CLIENT_SECRET}
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    networks: [asunset]
+
+  openfga-migrate:
+    image: openfga/openfga:v1.6
+    command: migrate
+    environment:
+      OPENFGA_DATASTORE_ENGINE: postgres
+      OPENFGA_DATASTORE_URI: postgres://${FGA_DB_USER}:${FGA_DB_PASSWORD}@postgres:5432/${FGA_DB_NAME}?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [asunset]
+    restart: "no"
+
+  openfga:
+    image: openfga/openfga:v1.6
+    command: run
+    environment:
+      OPENFGA_DATASTORE_ENGINE: postgres
+      OPENFGA_DATASTORE_URI: postgres://${FGA_DB_USER}:${FGA_DB_PASSWORD}@postgres:5432/${FGA_DB_NAME}?sslmode=disable
+      OPENFGA_LOG_FORMAT: json
+      OPENFGA_LOG_LEVEL: info
+      # Preshared-key auth. Anything on the docker network that gets a
+      # shell can no longer rewrite authorization tuples without the key.
+      OPENFGA_AUTHN_METHOD: preshared
+      OPENFGA_AUTHN_PRESHARED_KEYS: ${OPENFGA_API_KEY}
+      # Playground off — it exposes an unauth HTML UI that, combined
+      # with `none` authn, effectively grants anyone on the network full
+      # control of the authz model. Operators turn it on explicitly in
+      # compose.dev.yml if they need it during local iteration.
+      OPENFGA_PLAYGROUND_ENABLED: "false"
+    depends_on:
+      openfga-migrate:
+        condition: service_completed_successfully
+    networks: [asunset]
+    ports:
+      - "8081:8080"   # HTTP API (preshared-key protected)
+      - "8083:2112"   # Metrics
+      # Playground port (3000) intentionally not exposed — see env above.
+    healthcheck:
+      test: ["CMD", "/openfga", "--help"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  vector:
+    image: timberio/vector:0.40.0-alpine
+    restart: unless-stopped
+    # --config-dir lets overlays (e.g. compose.wazuh.yml) drop in extra sink
+    # configs without touching the base file.
+    command: ["--config-dir", "/etc/vector"]
+    environment:
+      VECTOR_LOG: ${VECTOR_LOG_LEVEL}
+    volumes:
+      - ./infra/vector/vector.toml:/etc/vector/vector.toml:ro
+      # docker_logs source needs access to the Docker socket to tail container logs
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [asunset]
+    depends_on:
+      - keycloak
+      - openfga
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      ASUNSET_ENV: ${ASUNSET_ENV}
+      APP_DB_URL: postgresql+asyncpg://${APP_DB_USER}:${APP_DB_PASSWORD}@postgres:5432/${APP_DB_NAME}
+      APP_ADMIN_DB_URL: postgresql+asyncpg://${APP_DB_OWNER}:${APP_DB_OWNER_PASSWORD}@postgres:5432/${APP_DB_NAME}
+      # Read by the Alembic initial migration to GRANT on freshly-created tables.
+      APP_DB_USER: ${APP_DB_USER}
+      KEYCLOAK_ISSUER: ${KEYCLOAK_PUBLIC_URL}/realms/${KEYCLOAK_REALM}
+      KEYCLOAK_INTERNAL_ISSUER: ${KEYCLOAK_INTERNAL_URL}/realms/${KEYCLOAK_REALM}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      KEYCLOAK_API_CLIENT_ID: ${KEYCLOAK_API_CLIENT_ID}
+      KEYCLOAK_API_CLIENT_SECRET: ${KEYCLOAK_API_CLIENT_SECRET}
+      OPENFGA_API_URL: ${OPENFGA_API_URL}
+      OPENFGA_STORE_NAME: ${OPENFGA_STORE_NAME}
+      OPENFGA_API_KEY: ${OPENFGA_API_KEY}
+      API_CORS_ORIGINS: ${API_CORS_ORIGINS}
+      API_LOG_LEVEL: ${API_LOG_LEVEL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      keycloak-init:
+        condition: service_completed_successfully
+      openfga:
+        condition: service_started
+    networks: [asunset]
+    ports:
+      - "${API_PORT}:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL}
+        VITE_KEYCLOAK_URL: ${VITE_KEYCLOAK_URL}
+        VITE_KEYCLOAK_REALM: ${VITE_KEYCLOAK_REALM}
+        VITE_KEYCLOAK_CLIENT_ID: ${VITE_KEYCLOAK_CLIENT_ID}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+    networks: [asunset]
+    ports:
+      - "${WEB_PORT}:80"

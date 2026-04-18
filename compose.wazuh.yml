@@ -1,0 +1,35 @@
+# SIEM demo overlay: routes Vector output to a local Wazuh stack.
+# Usage: docker compose -f compose.yml -f compose.wazuh.yml up
+#
+# This is a minimal single-node Wazuh for demo / local testing.
+# Production deployments should run the official Wazuh indexer cluster
+# behind TLS with WORM-backed index snapshots. See docs/swap-siem.md.
+
+volumes:
+  wazuh-data:
+
+services:
+  wazuh:
+    image: wazuh/wazuh-manager:4.8.0
+    restart: unless-stopped
+    environment:
+      INDEXER_URL: https://wazuh-indexer:9200
+      INDEXER_USERNAME: admin
+      INDEXER_PASSWORD: change-me-wazuh
+      FILEBEAT_SSL_VERIFICATION_MODE: none
+    volumes:
+      - wazuh-data:/var/ossec/data
+    networks: [asunset]
+    ports:
+      - "1514:1514/udp"   # syslog in
+      - "55000:55000"     # API
+
+  vector:
+    environment:
+      WAZUH_HOST: wazuh
+      WAZUH_PORT: "1514"
+    volumes:
+      # Dropped into --config-dir alongside the base vector.toml.
+      - ./infra/vector/wazuh.toml:/etc/vector/wazuh.toml:ro
+    depends_on:
+      - wazuh

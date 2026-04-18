@@ -1,0 +1,108 @@
+# TLS overlay — terminates HTTPS at a Caddy reverse proxy and flips
+# Keycloak to production mode. Usage:
+#
+#   docker compose -f compose.yml -f compose.tls.yml build web keycloak-init
+#   docker compose -f compose.yml -f compose.tls.yml up -d
+#
+# Prerequisite: /etc/hosts entries pointing the three TLS hostnames at
+# 127.0.0.1 (for local dev) or at the Caddy container's public IP (for
+# real deployments). See README.md "TLS mode".
+
+volumes:
+  caddy-data:
+  caddy-config:
+
+services:
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      TLS_WEB_HOST: ${TLS_WEB_HOST}
+      TLS_AUTH_HOST: ${TLS_AUTH_HOST}
+      TLS_API_HOST: ${TLS_API_HOST}
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - web
+      - keycloak
+      - api
+    networks: [asunset]
+
+  # Keycloak in production mode — strict hostname, proxy-aware, SSL required.
+  # Runtime auto-build detects env changes and rebuilds on first start.
+  keycloak:
+    command: ["start", "--import-realm"]
+    environment:
+      KC_HOSTNAME: https://${TLS_AUTH_HOST}
+      KC_HOSTNAME_STRICT: "true"
+      KC_HOSTNAME_STRICT_BACKCHANNEL: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      # sslRequired=all in prod — the realm-export.json already sets
+      # sslRequired=external, but this env overrides at runtime.
+      KC_HOSTNAME_ADMIN: https://${TLS_AUTH_HOST}
+    # Strip direct port mapping — Caddy is the only way in.
+    ports: !reset []
+
+  api:
+    environment:
+      KEYCLOAK_ISSUER: https://${TLS_AUTH_HOST}/realms/${KEYCLOAK_REALM}
+      API_CORS_ORIGINS: https://${TLS_WEB_HOST}
+    ports: !reset []
+
+  web:
+    build:
+      args:
+        VITE_API_URL: https://${TLS_API_HOST}
+        VITE_KEYCLOAK_URL: https://${TLS_AUTH_HOST}
+        VITE_KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+        VITE_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_WEB_CLIENT_ID}
+    ports: !reset []
+
+  # Extends the base keycloak-init to ALSO update the web client's
+  # redirect_uris + web_origins to the TLS hostnames. When the overlay
+  # isn't active these env vars are unset and the extra step is a no-op.
+  keycloak-init:
+    environment:
+      TLS_WEB_HOST: ${TLS_WEB_HOST}
+      TLS_AUTH_HOST: ${TLS_AUTH_HOST}
+      TLS_API_HOST: ${TLS_API_HOST}
+    command:
+      - |
+        set -eu
+        /opt/keycloak/bin/kcadm.sh config credentials \
+          --server http://keycloak:8080 \
+          --realm master \
+          --user "$${KEYCLOAK_ADMIN}" \
+          --password "$${KEYCLOAK_ADMIN_PASSWORD}"
+
+        API_UUID=$$(/opt/keycloak/bin/kcadm.sh get clients -r "$${KEYCLOAK_REALM}" -q clientId=asunset-api --fields id --format csv --noquotes | tr -d '\r\n')
+        /opt/keycloak/bin/kcadm.sh update "clients/$${API_UUID}" \
+          -r "$${KEYCLOAK_REALM}" \
+          -s "secret=$${KEYCLOAK_API_CLIENT_SECRET}"
+        echo "keycloak-init: asunset-api secret synced from env"
+
+        if [ -n "$${TLS_WEB_HOST:-}" ]; then
+          WEB_UUID=$$(/opt/keycloak/bin/kcadm.sh get clients -r "$${KEYCLOAK_REALM}" -q clientId=asunset-web --fields id --format csv --noquotes | tr -d '\r\n')
+          /opt/keycloak/bin/kcadm.sh update "clients/$${WEB_UUID}" \
+            -r "$${KEYCLOAK_REALM}" \
+            -s "rootUrl=https://$${TLS_WEB_HOST}" \
+            -s "baseUrl=https://$${TLS_WEB_HOST}" \
+            -s "redirectUris=[\"https://$${TLS_WEB_HOST}/*\"]" \
+            -s "webOrigins=[\"https://$${TLS_WEB_HOST}\"]" \
+            -s "attributes.\"post.logout.redirect.uris\"=https://$${TLS_WEB_HOST}/*"
+          echo "keycloak-init: asunset-web URIs flipped to https://$${TLS_WEB_HOST}"
+        fi
+
+        # Lock the realm's sslRequired to all in TLS mode.
+        if [ -n "$${TLS_WEB_HOST:-}" ]; then
+          /opt/keycloak/bin/kcadm.sh update "realms/$${KEYCLOAK_REALM}" \
+            -s "sslRequired=all"
+          echo "keycloak-init: realm sslRequired=all"
+        fi

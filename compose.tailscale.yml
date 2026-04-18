@@ -1,0 +1,125 @@
+# Tailscale mode — single-hostname, path-based routing through Caddy,
+# with Tailscale serve terminating TLS externally. Usage:
+#
+#   ./tools/deploy/asunset-deploy             # pick "tailscale" mode
+#   docker compose -f compose.yml -f compose.tailscale.yml build web keycloak-init
+#   docker compose -f compose.yml -f compose.tailscale.yml up -d
+#   sudo tailscale serve --bg --https=443 localhost:5173
+#
+# Architecture:
+#   Client (tailnet) ──HTTPS:443──> tailscale serve ──HTTP:5173──> Caddy
+#                                                                   │
+#                                           /auth/*  ─────────────> Keycloak :8080
+#                                           /api/*   ─────────────> FastAPI :8000
+#                                           /*       ─────────────> web (SPA) :80
+
+volumes:
+  caddy-data:
+
+services:
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      # :5173 on the host is Tailscale serve's upstream target. Not
+      # exposed beyond the host — tailnet traffic reaches it only via
+      # `tailscale serve`.
+      - "127.0.0.1:5173:5173"
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on:
+      - web
+      - keycloak
+      - api
+    networks: [asunset]
+
+  # Keycloak in production mode with a relative base path. Every KC
+  # URL now lives under /auth, which matches Caddy's handle /auth/*.
+  keycloak:
+    command: ["start", "--import-realm", "--http-relative-path=/auth"]
+    environment:
+      KC_HOSTNAME: https://${TAILSCALE_HOST}/auth
+      KC_HOSTNAME_STRICT: "true"
+      KC_HOSTNAME_STRICT_BACKCHANNEL: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HOSTNAME_ADMIN: https://${TAILSCALE_HOST}/auth
+    ports: !reset []
+
+  api:
+    environment:
+      KEYCLOAK_ISSUER: https://${TAILSCALE_HOST}/auth/realms/${KEYCLOAK_REALM}
+      # KEYCLOAK_INTERNAL_ISSUER stays http://keycloak:8080 from .env —
+      # but needs the /auth prefix now that KC lives under it.
+      KEYCLOAK_INTERNAL_ISSUER: http://keycloak:8080/auth/realms/${KEYCLOAK_REALM}
+      API_CORS_ORIGINS: https://${TAILSCALE_HOST}
+    ports: !reset []
+
+  web:
+    build:
+      args:
+        VITE_API_URL: https://${TAILSCALE_HOST}/api
+        VITE_KEYCLOAK_URL: https://${TAILSCALE_HOST}/auth
+        VITE_KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+        VITE_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_WEB_CLIENT_ID}
+    ports: !reset []
+
+  # keycloak-init rewrites the web client's redirect URIs + web origins
+  # to the single Tailscale hostname, and locks sslRequired to all.
+  keycloak-init:
+    environment:
+      TAILSCALE_HOST: ${TAILSCALE_HOST}
+    command:
+      - |
+        set -eu
+        /opt/keycloak/bin/kcadm.sh config credentials \
+          --server http://keycloak:8080/auth \
+          --realm master \
+          --user "$${KEYCLOAK_ADMIN}" \
+          --password "$${KEYCLOAK_ADMIN_PASSWORD}"
+
+        API_UUID=$$(/opt/keycloak/bin/kcadm.sh get clients -r "$${KEYCLOAK_REALM}" -q clientId=asunset-api --fields id --format csv --noquotes | tr -d '\r\n')
+        /opt/keycloak/bin/kcadm.sh update "clients/$${API_UUID}" \
+          -r "$${KEYCLOAK_REALM}" \
+          -s "secret=$${KEYCLOAK_API_CLIENT_SECRET}"
+        echo "keycloak-init: asunset-api secret synced"
+
+        WEB_UUID=$$(/opt/keycloak/bin/kcadm.sh get clients -r "$${KEYCLOAK_REALM}" -q clientId=asunset-web --fields id --format csv --noquotes | tr -d '\r\n')
+        /opt/keycloak/bin/kcadm.sh update "clients/$${WEB_UUID}" \
+          -r "$${KEYCLOAK_REALM}" \
+          -s "rootUrl=https://$${TAILSCALE_HOST}" \
+          -s "baseUrl=https://$${TAILSCALE_HOST}" \
+          -s "redirectUris=[\"https://$${TAILSCALE_HOST}/*\"]" \
+          -s "webOrigins=[\"https://$${TAILSCALE_HOST}\"]" \
+          -s "attributes.\"post.logout.redirect.uris\"=https://$${TAILSCALE_HOST}/*"
+        echo "keycloak-init: asunset-web URIs → https://$${TAILSCALE_HOST}"
+
+        /opt/keycloak/bin/kcadm.sh update "realms/$${KEYCLOAK_REALM}" \
+          -s "sslRequired=all" \
+          -s "ssoSessionIdleTimeout=900" \
+          -s "ssoSessionMaxLifespan=14400" \
+          -s "otpPolicyType=totp" \
+          -s "otpPolicyAlgorithm=HmacSHA1" \
+          -s "otpPolicyDigits=6" \
+          -s "otpPolicyPeriod=30" \
+          -s "otpPolicyLookAheadWindow=1"
+        echo "keycloak-init: realm sslRequired=all + session/OTP policy"
+
+        # HIPAA §164.312(a)(2)(i) / NYDFS 500.12 — MFA on privileged
+        # accounts. Set CONFIGURE_TOTP required action on every user
+        # holding platform_admin. Idempotent; safe to run on every boot.
+        ADMIN_USERS=$$(/opt/keycloak/bin/kcadm.sh get "roles/platform_admin/users" -r "$${KEYCLOAK_REALM}" --fields username --format csv --noquotes 2>/dev/null | tr -d '\r"')
+        for U in $$ADMIN_USERS; do
+          [ -z "$$U" ] && continue
+          # NB: can't use the name UID — readonly bash built-in
+          # (effective user id); assignment silently aborts the
+          # whole script under `set -e`.
+          USER_UID=$$(/opt/keycloak/bin/kcadm.sh get users -r "$${KEYCLOAK_REALM}" -q username=$$U --fields id --format csv --noquotes | tr -d '\r\n"')
+          [ -z "$$USER_UID" ] && continue
+          /opt/keycloak/bin/kcadm.sh update "users/$$USER_UID" \
+            -r "$${KEYCLOAK_REALM}" \
+            -s 'requiredActions=["CONFIGURE_TOTP"]' 2>/dev/null || true
+          echo "keycloak-init: TOTP required for $$U"
+        done
