@@ -6,11 +6,12 @@ from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from asunset_api.auth.authorizer import OpenFGAAuthorizer, make_openfga_client
+from asunset_core.auth.authorizer import OpenFGAAuthorizer, make_openfga_client
 from asunset_api.config import get_settings
-from asunset_api.fga.bootstrap import bootstrap_openfga
-from asunset_api.logging import configure_logging, get_logger
-from asunset_api.middleware.correlation import CorrelationIdMiddleware
+from asunset_api.fga.model import AUTHORIZATION_MODEL
+from asunset_core.fga.bootstrap import bootstrap_openfga
+from asunset_core.logging import configure_logging, get_logger
+from asunset_core.middleware.correlation import CorrelationIdMiddleware
 from asunset_api.routers import audit as audit_router
 from asunset_api.routers import notes as notes_router
 from asunset_api.routers import orgs as orgs_router
@@ -27,7 +28,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging(settings.api_log_level)
     log.info("api.startup", env=settings.asunset_env)
 
-    store_id, model_id = await bootstrap_openfga(settings)
+    store_id, model_id = await bootstrap_openfga(settings, AUTHORIZATION_MODEL)
     fga_client = make_openfga_client(settings, store_id, model_id)
     app.state.authorizer = OpenFGAAuthorizer(fga_client, store_id, model_id)
     app.state.fga_client = fga_client  # kept so lifespan shutdown can close it
@@ -71,7 +72,7 @@ def create_app() -> FastAPI:
         per-check breakdown is always in the body so operators can see
         *which* dep is flaking without reading logs.
         """
-        from asunset_api.db.session import get_session_factory
+        from asunset_core.db.session import get_session_factory
 
         settings = get_settings()
         checks: dict[str, dict[str, str]] = {}

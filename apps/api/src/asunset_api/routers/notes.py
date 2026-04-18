@@ -19,12 +19,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from uuid import UUID as _UUID
 
-from asunset_api.audit.events import EventType
-from asunset_api.audit.sink import AuditSink
-from asunset_api.auth.authorizer import AccessPath, Authorizer, Tuple
-from asunset_api.auth.principal import Principal
-from asunset_api.auth.oidc import get_current_principal
-from asunset_api.db.models import Note, Organization, Team, TeamMember
+from asunset_core.audit.events import EventType
+from asunset_core.audit.sink import AuditSink
+from asunset_core.auth.authorizer import AccessPath, Authorizer, Tuple
+from asunset_core.auth.principal import Principal
+from asunset_core.auth.oidc import get_current_principal
+from asunset_core.db.models import Organization, Team, TeamMember
+from asunset_api.db.models import Note
 from asunset_api.routers.deps import (
     OrgContext,
     get_audit_sink,

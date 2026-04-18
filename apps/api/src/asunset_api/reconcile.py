@@ -18,13 +18,13 @@ import sys
 
 from sqlalchemy import text
 
-from asunset_api.audit.sink import AuditSink
-from asunset_api.auth.authorizer import OpenFGAAuthorizer, make_openfga_client
+from asunset_core.audit.sink import AuditSink
+from asunset_core.auth.authorizer import OpenFGAAuthorizer, make_openfga_client
 from asunset_api.config import get_settings
-from asunset_api.db.session import get_admin_session_factory
-from asunset_api.fga.bootstrap import bootstrap_openfga
+from asunset_core.db.session import get_admin_session_factory
+from asunset_core.fga.bootstrap import bootstrap_openfga
 from asunset_api.fga.reconcile import reconcile
-from asunset_api.logging import configure_logging, get_logger
+from asunset_core.logging import configure_logging, get_logger
 
 log = get_logger("asunset_api.reconcile")
 

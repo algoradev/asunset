@@ -223,8 +223,10 @@ services:
 
   api:
     build:
-      context: ./apps/api
-      dockerfile: Dockerfile
+      # Context is the monorepo root so the image can COPY
+      # packages/asunset_core alongside the app source.
+      context: .
+      dockerfile: apps/api/Dockerfile
     restart: unless-stopped
     environment:
       ASUNSET_ENV: ${ASUNSET_ENV}

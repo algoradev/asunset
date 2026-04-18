@@ -8,12 +8,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from asunset_api.audit.events import EventType
-from asunset_api.audit.sink import AuditSink
-from asunset_api.auth.authorizer import Authorizer, Tuple
-from asunset_api.auth.oidc import get_current_principal
-from asunset_api.auth.principal import Principal
-from asunset_api.db.models import AppUser, MemberRole, Team, TeamMember
+from asunset_core.audit.events import EventType
+from asunset_core.audit.sink import AuditSink
+from asunset_core.auth.authorizer import Authorizer, Tuple
+from asunset_core.auth.oidc import get_current_principal
+from asunset_core.auth.principal import Principal
+from asunset_core.db.models import AppUser, MemberRole, Team, TeamMember
 from asunset_api.routers.deps import (
     OrgContext,
     get_audit_sink,

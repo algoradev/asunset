@@ -18,8 +18,8 @@ from typing import Any
 
 import httpx
 
-from asunset_api.config import Settings
-from asunset_api.logging import get_logger
+from asunset_core.config import CoreSettings as Settings
+from asunset_core.logging import get_logger
 
 log = get_logger(__name__)
 

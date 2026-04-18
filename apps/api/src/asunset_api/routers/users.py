@@ -15,11 +15,11 @@ from pydantic import BaseModel
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from asunset_api.auth.keycloak_admin import find_user_by_email
-from asunset_api.auth.oidc import get_current_principal
-from asunset_api.auth.principal import Principal
+from asunset_core.auth.keycloak_admin import find_user_by_email
+from asunset_core.auth.oidc import get_current_principal
+from asunset_core.auth.principal import Principal
 from asunset_api.config import Settings, get_settings
-from asunset_api.db.models import AppUser
+from asunset_core.db.models import AppUser
 from asunset_api.routers.deps import OrgContext, get_current_org, get_db
 from asunset_api.routers.schemas import UserOut
 

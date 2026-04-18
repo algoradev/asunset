@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 license = { text = "MIT" }
 
 dependencies = [
+  "asunset-core",
   "fastapi>=0.115",
   "uvicorn[standard]>=0.30",
   "pydantic>=2.8",
@@ -20,6 +21,11 @@ dependencies = [
   "structlog>=24.4",
   "python-json-logger>=2.0",
 ]
+
+# asunset-core lives in the monorepo at packages/asunset_core. The
+# Dockerfile copies it in alongside this app and installs both.
+[tool.uv.sources]
+asunset-core = { path = "../../packages/asunset_core", editable = true }
 
 [project.optional-dependencies]
 dev = [

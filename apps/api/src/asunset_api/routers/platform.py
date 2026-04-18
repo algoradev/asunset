@@ -16,13 +16,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from asunset_api.audit.events import EventType
-from asunset_api.audit.sink import AuditSink
-from asunset_api.auth.authorizer import Authorizer, Tuple
-from asunset_api.auth.oidc import get_current_principal, require_platform_admin
-from asunset_api.auth.principal import Principal
-from asunset_api.db.models import MemberRole, Organization, OrgMember
-from asunset_api.db.session import get_admin_session_factory, get_session_factory
+from asunset_core.audit.events import EventType
+from asunset_core.audit.sink import AuditSink
+from asunset_core.auth.authorizer import Authorizer, Tuple
+from asunset_core.auth.oidc import get_current_principal, require_platform_admin
+from asunset_core.auth.principal import Principal
+from asunset_core.db.models import MemberRole, Organization, OrgMember
+from asunset_core.db.session import get_admin_session_factory, get_session_factory
 from asunset_api.fga.reconcile import reconcile
 from asunset_api.routers.deps import (
     OrgContext,

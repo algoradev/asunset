@@ -12,6 +12,9 @@ services:
     volumes:
       - ./apps/api/src:/app/src
       - ./apps/api/tests:/app/tests
+      # Editable install of asunset-core points at /packages/asunset_core;
+      # mount the live source so edits reload without rebuilding.
+      - ./packages/asunset_core:/packages/asunset_core
 
   web:
     build:

@@ -12,7 +12,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from asunset_api.db.models import MemberRole
+from asunset_core.db.models import MemberRole
 
 
 class _ORMBase(BaseModel):

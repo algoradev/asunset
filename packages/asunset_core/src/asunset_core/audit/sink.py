@@ -19,10 +19,10 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from asunset_api.audit.events import EventType
-from asunset_api.audit.redactor import get_redactor
-from asunset_api.db.models import AuditEvent, MemberRole
-from asunset_api.logging import get_logger
+from asunset_core.audit.events import EventType
+from asunset_core.audit.redactor import get_redactor
+from asunset_core.db.models import AuditEvent, MemberRole
+from asunset_core.logging import get_logger
 
 log = get_logger("audit")
 

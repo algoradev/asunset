@@ -9,7 +9,10 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from asunset_api.config import get_settings
-from asunset_api.db.models import Base
+# Import Base from asunset_core + ensure asunset_api.db.models is loaded
+# so the Note table registers on Base.metadata before Alembic scans it.
+from asunset_core.db.models import Base  # noqa: F401
+import asunset_api.db.models  # noqa: F401
 
 config = context.config
 

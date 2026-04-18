@@ -22,10 +22,10 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from asunset_api.auth.principal import Principal
-from asunset_api.config import Settings, get_settings
-from asunset_api.db.models import AppUser
-from asunset_api.db.session import session_scope
+from asunset_core.auth.principal import Principal
+from asunset_core.config import CoreSettings as Settings, get_core_settings as get_settings
+from asunset_core.db.models import AppUser
+from asunset_core.db.session import session_scope
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
