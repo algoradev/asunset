@@ -56,6 +56,10 @@ class OrgMemberAddIn(BaseModel):
     role: MemberRole = MemberRole.member
 
 
+class MemberRoleUpdateIn(BaseModel):
+    role: MemberRole
+
+
 # --- Team ---
 
 class TeamOut(_ORMBase):
@@ -128,6 +132,25 @@ class NoteShareOut(BaseModel):
     team_id: UUID | None = None
     org_id: UUID | None = None
     relation: Literal["viewer", "editor"]
+
+
+class NoteGrantOut(BaseModel):
+    """A single resolved share on a note.
+
+    `kind` selects which of (user_id, team_id, org_id) is populated and
+    also tells the UI how to render the row. `label`/`email` are optional
+    presentation fields so the caller doesn't need a second round-trip
+    to display names; they're empty if the backing record was deleted
+    but the FGA tuple survived (reconcile territory).
+    """
+
+    kind: Literal["user", "team", "org"]
+    relation: Literal["viewer", "editor"]
+    user_id: UUID | None = None
+    team_id: UUID | None = None
+    org_id: UUID | None = None
+    label: str | None = None
+    email: str | None = None
 
 
 # --- Audit ---

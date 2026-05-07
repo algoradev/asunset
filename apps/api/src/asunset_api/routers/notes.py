@@ -24,7 +24,7 @@ from asunset_core.audit.sink import AuditSink
 from asunset_core.auth.authorizer import AccessPath, Authorizer, Tuple
 from asunset_core.auth.principal import Principal
 from asunset_core.auth.oidc import get_current_principal
-from asunset_core.db.models import Organization, Team, TeamMember
+from asunset_core.db.models import AppUser, Organization, Team, TeamMember
 from asunset_api.db.models import Note
 from asunset_api.routers.deps import (
     OrgContext,
@@ -35,6 +35,7 @@ from asunset_api.routers.deps import (
 )
 from asunset_api.routers.schemas import (
     NoteCreateIn,
+    NoteGrantOut,
     NoteOut,
     NoteScope,
     NoteShareIn,
@@ -447,3 +448,105 @@ async def unshare_note(
         permission_path=path_label,
         payload={"target": target, "relation": body.relation},
     )
+
+
+@router.get("/{note_id}/shares", response_model=list[NoteGrantOut])
+async def list_note_shares(
+    note_id: UUID,
+    principal: Principal = Depends(get_current_principal),
+    org: OrgContext = Depends(get_current_org),
+    session: AsyncSession = Depends(get_db),
+    authorizer: Authorizer = Depends(get_authorizer),
+) -> list[NoteGrantOut]:
+    """List resolved share grants on a note.
+
+    Gated on `can_delete` (the same gate as share/unshare) so only people
+    who can modify the shares can see them — viewers see the note but
+    not the full grant list. Owner and structural team-propagation
+    tuples are filtered out so the result reflects only user-visible
+    grants. Labels are best-effort: a vanished user/team yields a row
+    with ids but no label, which is itself a reconcile signal.
+    """
+    await _load_note_or_404(session, authorizer, principal, note_id, "can_delete")
+
+    tuples = await authorizer.read_tuples(object=_fga_note(note_id))
+
+    user_ids: list[UUID] = []
+    team_ids: list[UUID] = []
+    org_ids: list[UUID] = []
+    parsed: list[tuple[str, UUID, str]] = []  # (kind, id, relation)
+
+    for t in tuples:
+        if t.relation not in ("viewer", "editor"):
+            continue
+        if t.user.startswith("user:"):
+            uid = UUID(t.user.split(":", 1)[1])
+            user_ids.append(uid)
+            parsed.append(("user", uid, t.relation))
+        elif t.user.startswith("team:") and t.user.endswith("#member"):
+            tid = UUID(t.user.split(":", 1)[1].split("#", 1)[0])
+            team_ids.append(tid)
+            parsed.append(("team", tid, t.relation))
+        elif t.user.startswith("organization:") and t.user.endswith("#member"):
+            oid = UUID(t.user.split(":", 1)[1].split("#", 1)[0])
+            org_ids.append(oid)
+            parsed.append(("org", oid, t.relation))
+
+    # Batch-resolve the display labels — one query per kind keeps this
+    # O(1) round-trips regardless of how many grants the note has.
+    users_by_id: dict[UUID, AppUser] = {}
+    if user_ids:
+        rows = await session.execute(
+            select(AppUser).where(AppUser.id.in_(user_ids))
+        )
+        users_by_id = {u.id: u for u in rows.scalars().all()}
+
+    teams_by_id: dict[UUID, Team] = {}
+    if team_ids:
+        rows = await session.execute(
+            select(Team).where(Team.id.in_(team_ids))
+        )
+        teams_by_id = {t.id: t for t in rows.scalars().all()}
+
+    orgs_by_id: dict[UUID, Organization] = {}
+    if org_ids:
+        rows = await session.execute(
+            select(Organization).where(Organization.id.in_(org_ids))
+        )
+        orgs_by_id = {o.id: o for o in rows.scalars().all()}
+
+    grants: list[NoteGrantOut] = []
+    for kind, ident, relation in parsed:
+        if kind == "user":
+            u = users_by_id.get(ident)
+            grants.append(
+                NoteGrantOut(
+                    kind="user",
+                    relation=relation,
+                    user_id=ident,
+                    label=u.display_name if u else None,
+                    email=u.email if u else None,
+                )
+            )
+        elif kind == "team":
+            team = teams_by_id.get(ident)
+            grants.append(
+                NoteGrantOut(
+                    kind="team",
+                    relation=relation,
+                    team_id=ident,
+                    label=team.name if team else None,
+                )
+            )
+        else:
+            o = orgs_by_id.get(ident)
+            grants.append(
+                NoteGrantOut(
+                    kind="org",
+                    relation=relation,
+                    org_id=ident,
+                    label=o.name if o else None,
+                )
+            )
+
+    return grants

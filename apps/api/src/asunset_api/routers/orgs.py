@@ -24,6 +24,7 @@ from asunset_api.routers.deps import (
     require_org_admin,
 )
 from asunset_api.routers.schemas import (
+    MemberRoleUpdateIn,
     OrgMemberAddIn,
     OrgMemberOut,
     OrgOut,
@@ -151,6 +152,67 @@ async def add_member(
         resource_label=user.email,
         permission="org_admin",
         payload={"role": body.role.value},
+    )
+
+    return OrgMemberOut(
+        user=UserOut(id=user.id, email=user.email, display_name=user.display_name),
+        role=member.role,
+        joined_at=member.joined_at,
+    )
+
+
+@router.patch("/current/members/{user_id}", response_model=OrgMemberOut)
+async def update_member_role(
+    user_id: UUID,
+    body: MemberRoleUpdateIn,
+    session: AsyncSession = Depends(get_db),
+    org: OrgContext = Depends(require_org_admin),
+    authorizer: Authorizer = Depends(get_authorizer),
+    audit: AuditSink = Depends(get_audit_sink),
+) -> OrgMemberOut:
+    member = (
+        await session.execute(
+            select(OrgMember).where(
+                OrgMember.org_id == org.org_id, OrgMember.user_id == user_id
+            )
+        )
+    ).scalar_one_or_none()
+    if member is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not a member")
+
+    user = (
+        await session.execute(select(AppUser).where(AppUser.id == user_id))
+    ).scalar_one()
+
+    prev_role = member.role
+    if prev_role == body.role:
+        return OrgMemberOut(
+            user=UserOut(id=user.id, email=user.email, display_name=user.display_name),
+            role=member.role,
+            joined_at=member.joined_at,
+        )
+
+    member.role = body.role
+    await session.flush([member])
+
+    # Admin is an additive tuple on top of member. DB flip above is the
+    # source of truth; FGA is reconciled by adding/removing the admin tuple.
+    admin_tuple = Tuple(
+        user=f"user:{user_id}", relation="admin", object=f"organization:{org.org_id}"
+    )
+    if body.role == MemberRole.admin:
+        await authorizer.write(writes=[admin_tuple])
+    else:
+        await authorizer.write(deletes=[admin_tuple])
+
+    await audit.emit(
+        EventType.ORG_MEMBER_ROLE_CHANGED,
+        action="update",
+        resource_type="org_member",
+        resource_id=user_id,
+        resource_label=user.email,
+        permission="org_admin",
+        payload={"prev_role": prev_role.value, "new_role": body.role.value},
     )
 
     return OrgMemberOut(

@@ -33,6 +33,7 @@ class EventType(str, enum.Enum):
     TEAM_DELETED = "team.deleted"
     TEAM_MEMBER_ADDED = "team.member_added"
     TEAM_MEMBER_REMOVED = "team.member_removed"
+    TEAM_MEMBER_ROLE_CHANGED = "team.member_role_changed"
 
     # Authorization outcomes (supplements OpenFGA's own decision logs with
     # app-level context — same request, the app's interpretation).

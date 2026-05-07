@@ -23,6 +23,7 @@ from asunset_api.routers.deps import (
     require_org_admin,
 )
 from asunset_api.routers.schemas import (
+    MemberRoleUpdateIn,
     TeamCreateIn,
     TeamMemberAddIn,
     TeamMemberOut,
@@ -132,24 +133,13 @@ async def delete_team(
     await session.delete(team)
     await session.flush()
 
-    # Exhaustive FGA cleanup: three queries cover every tuple shape that
-    # references this team in the model:
-    #   1. object = team:X         — org→team, team#admin, team#member
-    #   2. user   = team:X#member  — notes / other resources shared to the team
-    #   3. user   = team:X#admin   — (currently unused in our model, future-proof)
-    # The ordering principle (see auth/authorizer.py top comment) still
-    # holds: DB delete flushed first, FGA cleanup second. If FGA deletes
-    # fail the request errors and the DB delete rolls back.
-    to_delete: list[Tuple] = []
-    to_delete.extend(
-        await authorizer.read_tuples(object=f"team:{team_id}")
-    )
-    to_delete.extend(
-        await authorizer.read_tuples(user=f"team:{team_id}#member")
-    )
-    to_delete.extend(
-        await authorizer.read_tuples(user=f"team:{team_id}#admin")
-    )
+    # Clean up tuples where the team is the OBJECT: org→team, team#admin,
+    # team#member. OpenFGA's Read API doesn't support user-only queries, so
+    # tuples where the team is on the user side (notes shared with
+    # team#member as editor/viewer) are left as orphans and swept by the
+    # reconcile job — safe because `team:X#member` expands to an empty
+    # userset once the team is gone, so the grant evaluates to nothing.
+    to_delete = await authorizer.read_tuples(object=f"team:{team_id}")
     if to_delete:
         await authorizer.write(deletes=to_delete)
 
@@ -251,6 +241,75 @@ async def add_team_member(
         resource_label=f"{user.email} → {team.name}",
         permission="org_admin",
         payload={"role": body.role.value, "team_id": str(team_id)},
+    )
+
+    return TeamMemberOut(
+        user=UserOut(id=user.id, email=user.email, display_name=user.display_name),
+        role=member.role,
+        joined_at=member.joined_at,
+    )
+
+
+@router.patch(
+    "/{team_id}/members/{user_id}", response_model=TeamMemberOut
+)
+async def update_team_member_role(
+    team_id: UUID,
+    user_id: UUID,
+    body: MemberRoleUpdateIn,
+    session: AsyncSession = Depends(get_db),
+    org: OrgContext = Depends(require_org_admin),
+    authorizer: Authorizer = Depends(get_authorizer),
+    audit: AuditSink = Depends(get_audit_sink),
+) -> TeamMemberOut:
+    member = (
+        await session.execute(
+            select(TeamMember).where(
+                TeamMember.team_id == team_id, TeamMember.user_id == user_id
+            )
+        )
+    ).scalar_one_or_none()
+    if member is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not a team member")
+
+    user = (
+        await session.execute(select(AppUser).where(AppUser.id == user_id))
+    ).scalar_one()
+    team_name = (
+        await session.execute(select(Team.name).where(Team.id == team_id))
+    ).scalar_one_or_none()
+
+    prev_role = member.role
+    if prev_role == body.role:
+        return TeamMemberOut(
+            user=UserOut(id=user.id, email=user.email, display_name=user.display_name),
+            role=member.role,
+            joined_at=member.joined_at,
+        )
+
+    member.role = body.role
+    await session.flush([member])
+
+    admin_tuple = Tuple(
+        user=f"user:{user_id}", relation="admin", object=f"team:{team_id}"
+    )
+    if body.role == MemberRole.admin:
+        await authorizer.write(writes=[admin_tuple])
+    else:
+        await authorizer.write(deletes=[admin_tuple])
+
+    await audit.emit(
+        EventType.TEAM_MEMBER_ROLE_CHANGED,
+        action="update",
+        resource_type="team_member",
+        resource_id=f"{team_id}:{user_id}",
+        resource_label=f"{user.email} → {team_name or '?'}",
+        permission="org_admin",
+        payload={
+            "prev_role": prev_role.value,
+            "new_role": body.role.value,
+            "team_id": str(team_id),
+        },
     )
 
     return TeamMemberOut(
