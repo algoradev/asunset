@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import { RESOURCE } from "@/config/resource";
+import { CONSUMER_ROUTES } from "@/config/routes";
 import { LANGUAGES } from "@/lib/language";
 import type { Route } from "@/lib/route";
 import { useT } from "@/lib/useT";
@@ -30,11 +31,13 @@ import {
 
 export function CommandPalette({
   isPlatformAdmin,
+  orgRole,
   onNavigate,
   onSignOut,
   onOpenSettings,
 }: {
   isPlatformAdmin: boolean;
+  orgRole: "admin" | "member" | null;
   onNavigate: (r: Route) => void;
   onSignOut: () => void;
   onOpenSettings: (section?: "general" | "account" | "security" | "about") => void;
@@ -85,6 +88,20 @@ export function CommandPalette({
             {t("palette.gotoAudit")}
             <CommandShortcut>G A</CommandShortcut>
           </CommandItem>
+          {CONSUMER_ROUTES.map((r) => {
+            if (r.visible && !r.visible({ isPlatformAdmin, orgRole })) return null;
+            const Icon = r.icon;
+            return (
+              <CommandItem
+                key={r.key}
+                onSelect={() => run(() => onNavigate(r.key))}
+              >
+                <Icon />
+                {t(r.paletteLabelKey ?? r.labelKey)}
+                {r.shortcut && <CommandShortcut>{r.shortcut}</CommandShortcut>}
+              </CommandItem>
+            );
+          })}
           {isPlatformAdmin && (
             <CommandItem onSelect={() => run(() => onNavigate("admin"))}>
               <Shield />

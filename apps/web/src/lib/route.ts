@@ -1,16 +1,22 @@
 import { useEffect, useState } from "react";
 
 import { RESOURCE } from "@/config/resource";
+import { CONSUMER_ROUTES } from "@/config/routes";
 
 // The resource route key is config-driven (see src/config/resource.ts) so
 // that renaming the product's domain resource propagates through the type
-// union, URL hash, and sidebar without a grep-and-replace.
-export type Route =
+// union, URL hash, and sidebar without a grep-and-replace. Consumer-added
+// secondary routes flow in via CONSUMER_ROUTES (see src/config/routes.ts).
+type PlatformRoute =
   | typeof RESOURCE.routeKey
   | "teams"
   | "org"
   | "audit"
   | "admin";
+
+type ConsumerRouteKey = (typeof CONSUMER_ROUTES)[number]["key"];
+
+export type Route = PlatformRoute | ConsumerRouteKey;
 
 const DEFAULT: Route = RESOURCE.routeKey;
 const VALID: readonly Route[] = [
@@ -19,6 +25,7 @@ const VALID: readonly Route[] = [
   "org",
   "audit",
   "admin",
+  ...CONSUMER_ROUTES.map((r) => r.key as ConsumerRouteKey),
 ];
 
 function parseHash(raw: string): Route {

@@ -1,10 +1,11 @@
-import { useCallback, useState } from "react";
+import { Fragment, useCallback, useState } from "react";
 import { useAuth } from "react-oidc-context";
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "./api";
 import { BRAND } from "./config/brand";
 import { RESOURCE } from "./config/resource";
+import { CONSUMER_ROUTES } from "./config/routes";
 import { useT } from "./lib/useT";
 import { AppSidebar } from "./components/app-sidebar";
 import {
@@ -149,6 +150,7 @@ function AuthedShell() {
       <SidebarProvider>
         <PaletteWithSettings
           isPlatformAdmin={isPlatformAdmin}
+          orgRole={me.org_role}
           onNavigate={navigate}
           onSignOut={requestLogout}
         />
@@ -201,6 +203,12 @@ function AuthedShell() {
           {route === "org" && <OrgPage orgRole={me.org_role!} />}
           {route === "audit" && <AuditPage orgRole={me.org_role!} />}
           {route === "admin" && isPlatformAdmin && <AdminPage />}
+          {CONSUMER_ROUTES.map((r) =>
+            route === r.key &&
+            (!r.visible || r.visible({ isPlatformAdmin, orgRole: me.org_role })) ? (
+              <Fragment key={r.key}>{r.page}</Fragment>
+            ) : null,
+          )}
         </main>
       </SidebarInset>
         <IdleWarningDialog
@@ -216,6 +224,7 @@ function AuthedShell() {
 
 function PaletteWithSettings(props: {
   isPlatformAdmin: boolean;
+  orgRole: "admin" | "member" | null;
   onNavigate: (r: Route) => void;
   onSignOut: () => void;
 }) {
@@ -223,6 +232,7 @@ function PaletteWithSettings(props: {
   return (
     <CommandPalette
       isPlatformAdmin={props.isPlatformAdmin}
+      orgRole={props.orgRole}
       onNavigate={props.onNavigate}
       onSignOut={props.onSignOut}
       onOpenSettings={openSettings}
@@ -236,6 +246,8 @@ function pageTitle(route: Route, t: (k: string) => string): string {
   if (route === "org") return t("nav.org");
   if (route === "audit") return t("nav.audit");
   if (route === "admin") return t("nav.admin");
+  const consumerRoute = CONSUMER_ROUTES.find((r) => r.key === route);
+  if (consumerRoute) return t(consumerRoute.labelKey);
   return BRAND.name;
 }
 

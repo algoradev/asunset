@@ -231,6 +231,38 @@ export const RESOURCE = {
 } as const;
 ```
 
+### Adding secondary routes (`src/config/routes.ts`)
+
+Beyond the primary `RESOURCE`, products usually have several read-only
+auxiliary surfaces — KPI dashboards, deposits, balances, log views.
+Don't edit the sidebar, command palette, App.tsx, route.ts, and both
+i18n locales by hand for each one. Use `CONSUMER_ROUTES`:
+
+```ts
+// apps/web/src/config/routes.ts (overrides the empty default in vendored asunset)
+import { Landmark, LineChart, Wallet } from "lucide-react";
+import { defineConsumerRoutes } from "@/config/routes";
+import { DepositsPage } from "@/features/deposits/DepositsPage";
+import { KpiPage } from "@/features/kpi/KpiPage";
+import { BalancePage } from "@/features/balance/BalancePage";
+
+export const CONSUMER_ROUTES = defineConsumerRoutes([
+  { key: "deposits", labelKey: "nav.deposits", paletteLabelKey: "palette.gotoDeposits", icon: Landmark, page: <DepositsPage /> },
+  { key: "kpi",      labelKey: "nav.kpi",      paletteLabelKey: "palette.gotoKpi",      icon: LineChart, page: <KpiPage /> },
+  { key: "balance",  labelKey: "nav.balance",  paletteLabelKey: "palette.gotoBalance",  icon: Wallet,   page: <BalancePage />, visible: ({ orgRole }) => orgRole === "admin" },
+]);
+```
+
+That single file extends the `Route` type union, the sidebar `NavMain`,
+the command palette nav group, and the breadcrumb `pageTitle`. The
+optional `visible` predicate hides a route from the sidebar/palette
+when the predicate returns false. `defineConsumerRoutes(...)` is a
+pass-through helper that preserves the literal key types so
+`navigate("deposits")` is type-checked.
+
+You still own the i18n strings: add `nav.deposits` /
+`palette.gotoDeposits` / etc. to every locale you support.
+
 ### What's config vs. what you rewrite
 
 | Owned by config           | Owned by consumer code                                 |

@@ -4,6 +4,7 @@ import type { LucideIcon } from "lucide-react";
 
 import { BRAND } from "@/config/brand";
 import { RESOURCE } from "@/config/resource";
+import { CONSUMER_ROUTES } from "@/config/routes";
 import type { Route } from "@/lib/route";
 import { useT } from "@/lib/useT";
 import { NavMain, type NavItem } from "@/components/nav-main";
@@ -30,13 +31,18 @@ export function AppSidebar({
   onSignOut,
   ...props
 }: {
-  me: { user: AppUserLike; realm_roles: string[] };
+  me: {
+    user: AppUserLike;
+    realm_roles: string[];
+    org_role: "admin" | "member" | null;
+  };
   route: Route;
   onNavigate: (r: Route) => void;
   onSignOut: () => void;
 } & React.ComponentProps<typeof Sidebar>) {
   const { t } = useT();
   const isPlatformAdmin = me.realm_roles.includes("platform_admin");
+  const orgRole = me.org_role;
 
   const items: NavItem[] = [
     { key: RESOURCE.routeKey, label: t("nav.notes"), icon: RESOURCE.icon },
@@ -44,6 +50,10 @@ export function AppSidebar({
     { key: "org", label: t("nav.org"), icon: Building2 },
     { key: "audit", label: t("nav.audit"), icon: ScrollText },
   ];
+  for (const r of CONSUMER_ROUTES) {
+    if (r.visible && !r.visible({ isPlatformAdmin, orgRole })) continue;
+    items.push({ key: r.key, label: t(r.labelKey), icon: r.icon });
+  }
   if (isPlatformAdmin) {
     items.push({ key: "admin", label: t("nav.admin"), icon: Shield });
   }
