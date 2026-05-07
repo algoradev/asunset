@@ -1,62 +1,79 @@
-# asunset-deploy
+# asunset CLI
 
-Interactive wizard that generates `.env` and `infra/caddy/Caddyfile` for a
-new asunset deployment.
+On-prem deployment control for asunset stacks. One binary covers both
+first-run setup and day-two operations.
 
-## Why it exists
+## Commands
 
-Hospital ops teams won't hand-craft env files, and the number of decisions
-required to deploy this template (hostnames, cert strategy, secrets for
-every service) is large enough that a guided flow is meaningfully faster
-and less error-prone than a README checklist.
+| Command            | What it does                                             |
+|--------------------|----------------------------------------------------------|
+| `asunset init`     | Interactive wizard — generates `.env` + Caddyfile        |
+| `asunset up`       | `docker compose up -d` with the right overlay            |
+| `asunset down`     | `docker compose down`                                    |
+| `asunset restart [svc]` | Restart one service or the whole stack              |
+| `asunset logs [svc]`    | Tail logs (all or one service; follows by default)  |
+| `asunset ps`       | Show running services                                    |
+| `asunset help`     | Show help                                                |
 
-## Run it
+All lifecycle commands read `ASUNSET_MODE` from the generated `.env` and
+pick the matching compose overlay (`compose.tls.yml`,
+`compose.tailscale.yml`, …) automatically. Operators don't type `-f`
+flags.
+
+## Install on a fresh Ubuntu/Debian host
+
+```sh
+curl -fsSL https://<product>/install.sh | sudo bash
+```
+
+The installer:
+
+1. Verifies Ubuntu/Debian, aborts otherwise.
+2. Installs Docker Engine + compose plugin, git, and Go ≥1.22 if missing.
+3. Clones the repo to `/opt/asunset` (override with `ASUNSET_HOME=/srv/x`).
+4. Builds the `asunset` binary from source.
+5. Symlinks `/usr/local/bin/asunset` so it's on PATH for every user.
+
+Re-running is idempotent: deps are skipped if present, the checkout is
+fast-forwarded, the binary is rebuilt, the symlink refreshed.
+
+Then:
+
+```sh
+sudo asunset init   # wizard: pick mode, secrets, hostnames
+sudo asunset up     # start the stack
+```
+
+## Deployment modes
+
+`asunset init` asks which TLS strategy fits the environment:
+
+| Mode            | When to use                              | Caddyfile strategy               |
+|-----------------|------------------------------------------|----------------------------------|
+| `plain`         | Local dev on localhost                   | none (no TLS)                    |
+| `tls-internal`  | Dev/staging, self-signed certs           | `tls internal` — Caddy's CA      |
+| `tls-operator`  | Typical on-prem with PKI-issued certs    | `tls {cert} {key}` mounted       |
+| `tls-acme`      | Public internet                          | Automatic Let's Encrypt          |
+| `tailscale`     | Tailnet-only access, MagicDNS + serve    | path-mux on `:5173`              |
+
+Secrets are crypto-random (24–32 char alphanumeric, from `crypto/rand`).
+The wizard prints them once at the end; they also land in `.env`
+(gitignored). Re-running with a pre-existing `.env` offers a
+reuse-secrets path so running Postgres volumes don't mismatch.
+
+## Build from source (developers)
 
 ```sh
 cd tools/deploy
-go build -o asunset-deploy ./...
-cd ../..                           # back to repo root
-./tools/deploy/asunset-deploy
+go build -o asunset ./...
 ```
 
-The wizard must be run from the repo root — it locates the target by
-walking upward for `compose.yml`.
-
-## What it generates
-
-Four deployment modes, each with the right `.env` + Caddyfile shape:
-
-| Mode | When to use | Caddyfile |
-|---|---|---|
-| `plain` | Local dev on localhost | none (no TLS) |
-| `tls-internal` | Dev/staging, self-signed certs | `tls internal` — Caddy's embedded CA |
-| `tls-operator` | Typical on-prem with PKI-issued certs | `tls {cert} {key}` — mounted from host |
-| `tls-acme` | Public internet | Automatic Let's Encrypt |
-
-Secrets are crypto-random (24–32 char alphanumeric, from `crypto/rand`):
-
-- Keycloak admin password
-- `asunset-api` client secret
-- OpenFGA preshared API key
-- Postgres superuser password
-- App DB owner + app user passwords
-- Keycloak DB password
-- OpenFGA DB password
-
-The wizard prints credentials once at the end. They're also written to
-`.env` (gitignored), but the printed summary is the only time the user
-sees them in a copy-friendly form.
-
-## Cross-compile for operator distribution
+## Cross-compile for release
 
 ```sh
-GOOS=linux   GOARCH=amd64 go build -o dist/asunset-deploy-linux-amd64   ./...
-GOOS=linux   GOARCH=arm64 go build -o dist/asunset-deploy-linux-arm64   ./...
-GOOS=darwin  GOARCH=amd64 go build -o dist/asunset-deploy-darwin-amd64  ./...
-GOOS=darwin  GOARCH=arm64 go build -o dist/asunset-deploy-darwin-arm64  ./...
+GOOS=linux GOARCH=amd64 go build -o dist/asunset-linux-amd64 ./...
+GOOS=linux GOARCH=arm64 go build -o dist/asunset-linux-arm64 ./...
 ```
-
-Binaries are self-contained — operators need only Docker on the target host.
 
 ## Tests
 
@@ -64,5 +81,5 @@ Binaries are self-contained — operators need only Docker on the target host.
 go test ./...
 ```
 
-`generate_test.go` exercises every deployment mode's file generation
-without needing a TTY (huh forms are skipped).
+`generate_test.go` covers every deployment mode's file generation without
+needing a TTY (huh forms are skipped).

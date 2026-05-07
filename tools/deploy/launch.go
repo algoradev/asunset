@@ -117,11 +117,16 @@ func composeLaunchSummary(cfg *Config) string {
 }
 
 // run inherits stdio so build output streams live and sudo's prompt
-// lands on the controlling terminal. Returns the child's exit error.
+// lands on the controlling terminal. Executes from the repo root so
+// docker compose finds compose.yml regardless of the caller's cwd —
+// needed for lifecycle commands invoked via /usr/local/bin/asunset.
 func run(args ...string) error {
 	fmt.Println()
 	fmt.Println(muted.Render("$ " + strings.Join(args, " ")))
 	cmd := exec.Command(args[0], args[1:]...)
+	if root, err := repoRoot(); err == nil {
+		cmd.Dir = root
+	}
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

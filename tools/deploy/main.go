@@ -22,6 +22,52 @@ var (
 )
 
 func main() {
+	if len(os.Args) < 2 {
+		printHelp()
+		return
+	}
+	switch os.Args[1] {
+	case "init":
+		cmdInit()
+	case "up":
+		cmdUp()
+	case "down":
+		cmdDown()
+	case "restart":
+		cmdRestart(os.Args[2:])
+	case "logs":
+		cmdLogs(os.Args[2:])
+	case "ps":
+		cmdPs()
+	case "-h", "--help", "help":
+		printHelp()
+	default:
+		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", os.Args[1])
+		printHelp()
+		os.Exit(2)
+	}
+}
+
+func printHelp() {
+	fmt.Println(title.Render("asunset — on-prem deployment control"))
+	fmt.Println(muted.Render("Generates config and manages the docker compose stack for this instance.") + "\n")
+	fmt.Println("Usage:")
+	fmt.Println("  asunset <command> [args]")
+	fmt.Println()
+	fmt.Println("Commands:")
+	fmt.Println("  init           Interactive setup — generate .env + Caddyfile")
+	fmt.Println("  up             Start the stack (docker compose up -d)")
+	fmt.Println("  down           Stop the stack (docker compose down)")
+	fmt.Println("  restart [svc]  Restart one service or the whole stack")
+	fmt.Println("  logs [svc]     Tail logs (all services or just one)")
+	fmt.Println("  ps             Show running services")
+	fmt.Println("  help           Show this help")
+	fmt.Println()
+	fmt.Println(muted.Render("All commands except `init` read ASUNSET_MODE from .env and pick"))
+	fmt.Println(muted.Render("the right compose overlay automatically."))
+}
+
+func cmdInit() {
 	fmt.Println(title.Render("asunset · deployment wizard"))
 	fmt.Println(muted.Render("Generates .env and Caddy config for this instance.") + "\n")
 

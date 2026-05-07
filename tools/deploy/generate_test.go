@@ -86,6 +86,10 @@ func TestPlainMode(t *testing.T) {
 		if strings.Contains(env, "TLS_WEB_HOST=") {
 			t.Fatal("TLS_WEB_HOST should not appear in plain mode")
 		}
+		// ASUNSET_MODE stamp is the canonical signal for lifecycle cmds.
+		if !strings.Contains(env, "ASUNSET_MODE=plain") {
+			t.Fatal("ASUNSET_MODE=plain not stamped into .env")
+		}
 		// No Caddyfile in plain mode.
 		if _, err := os.Stat(filepath.Join(root, "infra", "caddy", "Caddyfile")); err == nil {
 			t.Fatal("Caddyfile should not exist in plain mode")
@@ -175,6 +179,9 @@ func TestTailscaleMode(t *testing.T) {
 		}
 		if strings.Contains(env, "TLS_WEB_HOST=") {
 			t.Fatal("Tailscale mode should not emit TLS_* vars")
+		}
+		if !strings.Contains(env, "ASUNSET_MODE=tailscale") {
+			t.Fatal("ASUNSET_MODE=tailscale not stamped into .env")
 		}
 
 		caddy := generatedCaddyfile(t, root)
