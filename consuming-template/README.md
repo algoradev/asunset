@@ -155,3 +155,83 @@ the same way asunset's demo api does. Routes under `/reports`, `/orgs`,
 The asunset repo itself ships the same pattern as the Notes demo in
 `vendor/asunset/apps/api/`. If you're stuck, read that directory as
 your working reference — it's the "Hello World" of asunset consumption.
+
+## Forking the web app
+
+The first 1–2 consumer products fork `apps/web/` outright — no shared
+UI library yet. When a second consumer starts showing the same UI
+patterns as the first, that's the signal to extract `@asunset/react`.
+Until then, a fork is faster to rebrand and gives full styling autonomy.
+
+### Bootstrap
+
+```sh
+cp -r vendor/asunset/apps/web/. apps/web/
+cd apps/web
+npm install
+```
+
+You now own `apps/web/`. Upstream improvements come through
+`git subtree pull` into `vendor/asunset/`; you cherry-pick what you
+want out of `vendor/asunset/apps/web/` and apply it to your fork.
+
+### Rebranding: two config files
+
+Asunset puts every branded chrome string behind two config files so
+the rebrand is a two-file edit, not a grep-and-replace:
+
+- **`apps/web/src/config/brand.ts`** — product name, sign-in copy.
+- **`apps/web/src/config/resource.ts`** — the single domain resource:
+  `routeKey`, `name`, `plural`, `newLabel`, `icon`, `emptyLabel`,
+  `shareDialogDescription`. Changing `routeKey` propagates through
+  the `Route` type union, the URL hash, and the sidebar.
+
+```ts
+// src/config/resource.ts in a Reports fork
+import { BarChart3 } from "lucide-react";
+export const RESOURCE = {
+  routeKey: "reports",
+  name: "Report",
+  plural: "Reports",
+  newLabel: "New report",
+  icon: BarChart3,
+  emptyLabel: "No reports in this view.",
+  shareDialogDescription:
+    "Grant access to a user, a team, or the whole organization.",
+} as const;
+```
+
+### What's config vs. what you rewrite
+
+| Owned by config           | Owned by consumer code                                 |
+| ------------------------- | ------------------------------------------------------ |
+| Product name, sign-in     | Domain schema (title/body fields in your "New" dialog) |
+| Resource name & plural    | Validation rules for your resource                     |
+| Resource URL hash         | Access-path badge vocabulary if your model differs     |
+| Sidebar label & icon      | Any resource-specific filter or sort                   |
+| Share-dialog description  | Extra feature pages unique to your product             |
+
+Rule of thumb: if the string changes with the rebrand but the UI
+structure stays the same, it belongs in config. If the column set
+changes, it's code — edit the relevant `features/<resource>/*.tsx`.
+
+### Shared UI you inherit
+
+- **`components/States.tsx`** — `LoadingState`, `ErrorState`,
+  `EmptyState`. Use these instead of inline `<p class="…">` so
+  behavior stays consistent.
+- **`sonner` Toaster** — mounted at the root (`main.tsx`). Every
+  mutation fires `toast.success` / `toast.error` instead of rendering
+  inline error text. Queries still use `<ErrorState>` because their
+  failures are persistent, not transient.
+- **Idle auto-logout** — HIPAA-aligned 15min idle + 1min warning,
+  tied to Keycloak's SSO idle timeout. Don't remove.
+
+### Keep JWT + correlation invariants
+
+The backend doesn't care which frontend you ship. It only needs:
+- `Authorization: Bearer <keycloak-jwt>` on every API call.
+- `X-Correlation-Id` header per request (middleware adds one if missing).
+- OIDC auth-code + PKCE flow.
+
+If your fork preserves `api.ts` and `auth.ts`, you inherit all three.

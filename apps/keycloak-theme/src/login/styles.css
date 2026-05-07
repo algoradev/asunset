@@ -4,6 +4,8 @@
 @import "@fontsource/ibm-plex-sans/500.css";
 @import "@fontsource/ibm-plex-sans/600.css";
 @import "@fontsource/ibm-plex-sans/700.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
 
 /* Asunset login theme — shadcn-style palette matching the main web app. */
 
@@ -241,4 +243,127 @@ html, body {
 
 .asunset-provider:hover {
   background: hsl(210 40% 97%);
+}
+
+/* -------- One-time-code (TOTP) slots -------- */
+
+.asunset-otp-grid {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  margin: 0.25rem 0 0.25rem;
+}
+
+.asunset-otp-slot {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 3rem;
+  font-size: 1.25rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--asunset-fg);
+  background: var(--asunset-bg);
+  border: 1px solid var(--asunset-input);
+  border-radius: calc(var(--asunset-radius) - 2px);
+  transition: border-color 120ms, box-shadow 120ms;
+}
+
+.asunset-otp-slot--active {
+  border-color: var(--asunset-ring);
+  box-shadow: 0 0 0 3px hsl(222.2 84% 4.9% / 0.12);
+  z-index: 1;
+}
+
+.asunset-otp-slot[data-invalid="true"] {
+  border-color: var(--asunset-destructive);
+}
+
+.asunset-otp-caret {
+  position: absolute;
+  display: inline-block;
+  width: 1px;
+  height: 1.5rem;
+  background: var(--asunset-fg);
+  animation: asunset-caret 1s steps(2) infinite;
+}
+
+@keyframes asunset-caret {
+  50% { opacity: 0; }
+}
+
+/* -------- TOTP enrollment page -------- */
+
+.asunset-totp-steps {
+  margin: 0 0 1.25rem;
+  padding-left: 1.25rem;
+  font-size: 0.875rem;
+  color: var(--asunset-fg);
+}
+
+.asunset-totp-steps > li {
+  margin-bottom: 0.75rem;
+}
+
+.asunset-totp-steps ul {
+  margin: 0.25rem 0 0.5rem;
+  padding-left: 1rem;
+  color: var(--asunset-muted);
+  font-size: 0.8125rem;
+  list-style: disc;
+}
+
+.asunset-totp-qr {
+  display: block;
+  margin: 0.5rem 0;
+  width: 180px;
+  height: 180px;
+  border: 1px solid var(--asunset-border);
+  border-radius: calc(var(--asunset-radius) - 2px);
+  padding: 0.25rem;
+  background: #fff;
+}
+
+.asunset-totp-secret {
+  display: inline-block;
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.75rem;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.875rem;
+  background: hsl(210 40% 97%);
+  border: 1px solid var(--asunset-border);
+  border-radius: calc(var(--asunset-radius) - 4px);
+  user-select: all;
+  word-break: break-all;
+}
+
+.asunset-linkbtn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--asunset-fg);
+  text-decoration: none;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-block;
+}
+
+.asunset-linkbtn:hover {
+  text-decoration: underline;
+}
+
+/* Sub-action button (e.g., Cancel in app-initiated actions). */
+.asunset-button--ghost {
+  background: transparent;
+  color: var(--asunset-fg);
+  border: 1px solid var(--asunset-border);
+  margin-top: 0.5rem;
+}
+
+.asunset-button--ghost:hover {
+  background: hsl(210 40% 97%);
+  opacity: 1;
 }

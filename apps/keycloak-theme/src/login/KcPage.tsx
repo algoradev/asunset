@@ -10,6 +10,8 @@ const UserProfileFormFields = lazy(
   () => import("keycloakify/login/UserProfileFormFields"),
 );
 const Login = lazy(() => import("./pages/Login"));
+const LoginOtp = lazy(() => import("./pages/LoginOtp"));
+const LoginConfigTotp = lazy(() => import("./pages/LoginConfigTotp"));
 
 const doMakeUserConfirmPassword = true;
 
@@ -24,6 +26,26 @@ export default function KcPage(props: { kcContext: KcContext }) {
           case "login.ftl":
             return (
               <Login
+                kcContext={kcContext}
+                i18n={i18n}
+                classes={classes}
+                Template={Template}
+                doUseDefaultCss={false}
+              />
+            );
+          case "login-otp.ftl":
+            return (
+              <LoginOtp
+                kcContext={kcContext}
+                i18n={i18n}
+                classes={classes}
+                Template={Template}
+                doUseDefaultCss={false}
+              />
+            );
+          case "login-config-totp.ftl":
+            return (
+              <LoginConfigTotp
                 kcContext={kcContext}
                 i18n={i18n}
                 classes={classes}

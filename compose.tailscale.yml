@@ -109,7 +109,10 @@ services:
 
         # HIPAA §164.312(a)(2)(i) / NYDFS 500.12 — MFA on privileged
         # accounts. Set CONFIGURE_TOTP required action on every user
-        # holding platform_admin. Idempotent; safe to run on every boot.
+        # holding platform_admin. Skip users who already have a TOTP
+        # credential — overwriting requiredActions on an enrolled user
+        # forces re-enrollment, which piles up orphan credentials and
+        # makes the OTP picker nondeterministic.
         ADMIN_USERS=$$(/opt/keycloak/bin/kcadm.sh get "roles/platform_admin/users" -r "$${KEYCLOAK_REALM}" --fields username --format csv --noquotes 2>/dev/null | tr -d '\r"')
         for U in $$ADMIN_USERS; do
           [ -z "$$U" ] && continue
@@ -118,6 +121,11 @@ services:
           # whole script under `set -e`.
           USER_UID=$$(/opt/keycloak/bin/kcadm.sh get users -r "$${KEYCLOAK_REALM}" -q username=$$U --fields id --format csv --noquotes | tr -d '\r\n"')
           [ -z "$$USER_UID" ] && continue
+          HAS_TOTP=$$(/opt/keycloak/bin/kcadm.sh get "users/$$USER_UID/credentials" -r "$${KEYCLOAK_REALM}" --fields type --format csv --noquotes 2>/dev/null | tr -d '\r"' | grep -cx 'otp' || true)
+          if [ "$$HAS_TOTP" -gt 0 ]; then
+            echo "keycloak-init: TOTP already enrolled for $$U — skipping"
+            continue
+          fi
           /opt/keycloak/bin/kcadm.sh update "users/$$USER_UID" \
             -r "$${KEYCLOAK_REALM}" \
             -s 'requiredActions=["CONFIGURE_TOTP"]' 2>/dev/null || true
