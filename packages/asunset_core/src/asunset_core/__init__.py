@@ -13,7 +13,7 @@ from asunset_core.audit.redactor import (
     get_redactor,
     set_redactor,
 )
-from asunset_core.audit.sink import AuditSink
+from asunset_core.audit.sink import AuditSink, EventTypeLike
 from asunset_core.auth.authorizer import (
     AccessPath,
     Authorizer,
@@ -61,6 +61,7 @@ __all__ = [
     # audit
     "AuditSink",
     "EventType",
+    "EventTypeLike",
     "Redactor",
     "PassThroughRedactor",
     "set_redactor",

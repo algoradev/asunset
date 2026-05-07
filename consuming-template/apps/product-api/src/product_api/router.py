@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from asunset_core.audit.events import EventType
 from asunset_core.audit.sink import AuditSink
 from asunset_core.auth.authorizer import Authorizer, Tuple
 from asunset_core.auth.oidc import get_current_principal
@@ -30,6 +29,7 @@ from asunset_api.routers.deps import (
     get_db,
 )
 
+from product_api.events import ProductEventType
 from product_api.models import Report
 from product_api.schemas import ReportCreateIn, ReportOut
 
@@ -81,9 +81,7 @@ async def create_report(
     await authorizer.write(writes=writes)
 
     await audit.emit(
-        # EventType string is open-ended — consumers use their own values.
-        # Using a plain string works; or define a product-specific StrEnum.
-        "report.created",  # type: ignore[arg-type]
+        ProductEventType.REPORT_CREATED,
         action="create",
         resource_type="report",
         resource_id=report.id,
@@ -139,7 +137,7 @@ async def get_report(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "report not found")
 
     await audit.emit(
-        "report.viewed",  # type: ignore[arg-type]
+        ProductEventType.REPORT_VIEWED,
         action="read",
         resource_type="report",
         resource_id=report_id,

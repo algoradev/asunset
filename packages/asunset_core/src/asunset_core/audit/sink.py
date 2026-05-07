@@ -14,17 +14,29 @@ happen after the fact.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from asunset_core.audit.events import EventType
 from asunset_core.audit.redactor import get_redactor
 from asunset_core.db.models import AuditEvent, MemberRole
 from asunset_core.logging import get_logger
 
 log = get_logger("audit")
+
+
+class EventTypeLike(Protocol):
+    """Anything with a string `.value` — a str-Enum member.
+
+    Lets `emit()` accept the platform's `EventType` *and* per-product
+    enums consumers define on top of asunset (e.g. `TransactionEventType`),
+    without forcing consumers to extend the platform enum and without
+    silently accepting bare strings — a bare `str` has no `.value`, so
+    type-checkers reject it before it crashes at runtime.
+    """
+
+    value: str
 
 
 class AuditSink:
@@ -57,7 +69,7 @@ class AuditSink:
 
     async def emit(
         self,
-        event_type: EventType,
+        event_type: EventTypeLike,
         *,
         action: str,
         resource_type: str | None = None,
