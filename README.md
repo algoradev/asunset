@@ -102,18 +102,30 @@ docker compose -f compose.yml -f compose.wazuh.yml up
 
 Swapping to Graylog / ELK / Splunk is a sink change in `infra/vector/wazuh.toml`, not a code change.
 
-## Fork it
+## Build a product on top of this
 
-To turn this template into a real product, rename the `note` resource. Specifically:
+**Use the `consuming-template/` scaffold.** It's the supported path and
+keeps your product code outside the asunset subtree, so routine
+upstream pulls don't touch your work.
 
-1. `apps/api/src/asunset_api/fga/model.fga` — rename the `note` type (keep the relation shape; the template's relations generalize well).
-2. `apps/api/src/asunset_api/db/models.py` — rename `Note` model + table.
-3. Regenerate the Alembic migration or write a rename migration.
-4. `apps/api/src/asunset_api/routers/notes.py` — rename file + endpoints.
-5. `apps/web/src/features/notes/` — same on the frontend.
-6. Update `apps/api/src/asunset_api/fga/model.py` (the JSON authorization model) to match.
+```sh
+# In a fresh repo for your product:
+git subtree add --prefix=vendor/asunset git@github.com:you/asunset.git main --squash
+cp -r vendor/asunset/consuming-template/. .
+rm -rf consuming-template/   # don't ship a self-reference
+```
 
-The rest — auth, audit, reconcile, RLS, Keycloak, OpenFGA plumbing, share dialog pattern — stays.
+See `consuming-template/README.md` for the full walkthrough — what to
+edit (your model, FGA types, router, alembic), what NOT to edit (JWT
+validation, FGA client, audit sink), and how to keep the vendored
+asunset up to date via `scripts/update-vendor.sh`.
+
+**The old "rename Notes in place" path is no longer recommended.** It
+mixes platform code with product code and guarantees painful merges
+every time you pull asunset upstream. The `apps/api/` and `apps/web/`
+directories of *this* repo are now read-as-reference only — they're
+the working demo of every pattern the platform provides; consume them
+via subtree, don't fork them.
 
 ## What this template is NOT
 
@@ -125,14 +137,22 @@ The rest — auth, audit, reconcile, RLS, Keycloak, OpenFGA plumbing, share dial
 
 ```
 asunset/
-├── compose.yml, compose.dev.yml, compose.wazuh.yml
+├── compose.yml, compose.dev.yml, compose.tls.yml, compose.tailscale.yml, compose.wazuh.yml
 ├── .env.example
+├── install.sh                     # bootstrap docker + go + asunset CLI on a fresh host
 ├── apps/
-│   ├── api/            # FastAPI backend
-│   └── web/            # React SPA
+│   ├── api/                       # Notes-demo backend (read as reference)
+│   ├── web/                       # Notes-demo SPA (read as reference)
+│   └── keycloak-theme/            # Keycloakify login theme
+├── packages/
+│   └── asunset_core/              # reusable Python package — consumers depend on this
+├── consuming-template/            # scaffold for products built on asunset
+├── tools/
+│   └── deploy/                    # `asunset` CLI (init / up / down / restart / logs / ps)
 └── infra/
-    ├── keycloak/       # realm export (clients, roles, users, event listeners)
-    ├── openfga/        # (FGA model lives in apps/api for now)
-    ├── postgres/       # init script: three DBs, owner + app-user split
-    └── vector/         # log pipeline (base + wazuh overlay)
+    ├── caddy/                     # TLS reverse proxy (Caddyfile)
+    ├── keycloak/                  # realm export (clients, roles, users, event listeners)
+    ├── openfga/                   # (FGA model lives in apps/api for now)
+    ├── postgres/                  # init script: three DBs, owner + app-user split
+    └── vector/                    # log pipeline (base + wazuh overlay)
 ```
