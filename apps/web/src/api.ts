@@ -149,6 +149,16 @@ export type ShareBody =
   | { team_id: string; relation: Relation }
   | { org: true; relation: Relation };
 
+export type NoteGrant = {
+  kind: "user" | "team" | "org";
+  relation: Relation;
+  user_id: string | null;
+  team_id: string | null;
+  org_id: string | null;
+  label: string | null;
+  email: string | null;
+};
+
 // --- Endpoints ---
 
 export const api = {
@@ -185,6 +195,12 @@ export const api = {
       { method: "POST", body: JSON.stringify(body) },
       f,
     ),
+  updateOrgMemberRole: (f: Fetcher, user_id: string, role: Role) =>
+    request<OrgMember>(
+      `/orgs/current/members/${user_id}`,
+      { method: "PATCH", body: JSON.stringify({ role }) },
+      f,
+    ),
   removeOrgMember: (f: Fetcher, user_id: string) =>
     request<void>(
       `/orgs/current/members/${user_id}`,
@@ -212,6 +228,17 @@ export const api = {
     request<TeamMember>(
       `/teams/${id}/members`,
       { method: "POST", body: JSON.stringify(body) },
+      f,
+    ),
+  updateTeamMemberRole: (
+    f: Fetcher,
+    teamId: string,
+    userId: string,
+    role: Role,
+  ) =>
+    request<TeamMember>(
+      `/teams/${teamId}/members/${userId}`,
+      { method: "PATCH", body: JSON.stringify({ role }) },
       f,
     ),
   removeTeamMember: (f: Fetcher, teamId: string, userId: string) =>
@@ -258,6 +285,8 @@ export const api = {
       { method: "DELETE", body: JSON.stringify(body) },
       f,
     ),
+  listNoteShares: (f: Fetcher, id: string) =>
+    request<NoteGrant[]>(`/notes/${id}/shares`, {}, f),
 
   // audit
   listAuditEvents: (

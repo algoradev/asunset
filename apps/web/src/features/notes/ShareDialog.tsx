@@ -1,9 +1,14 @@
 import { useState } from "react";
 import { useAuth } from "react-oidc-context";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Building2, Share2, User2, Users2 } from "lucide-react";
+import { toast } from "sonner";
 
 import { api, type Relation, type ShareBody, type Team } from "@/api";
+import { UserCombobox } from "@/components/UserCombobox";
+import { useT } from "@/lib/useT";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import {
   Dialog,
   DialogContent,
@@ -12,11 +17,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  Field,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 type Target = "user" | "team" | "org";
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function ShareDialog({
   noteId,
@@ -30,13 +47,14 @@ export function ShareDialog({
   onClose: () => void;
 }) {
   const auth = useAuth();
+  const qc = useQueryClient();
+  const { t } = useT();
   const f = { accessToken: auth.user?.access_token };
 
   const [target, setTarget] = useState<Target>("user");
   const [relation, setRelation] = useState<Relation>("viewer");
   const [email, setEmail] = useState("");
   const [teamId, setTeamId] = useState<string>(teams[0]?.id ?? "");
-  const [statusMsg, setStatusMsg] = useState<string | null>(null);
 
   const mutation = useMutation({
     mutationFn: async (): Promise<ShareBody> => {
@@ -59,113 +77,142 @@ export function ShareDialog({
         "user_id" in body
           ? email
           : "team_id" in body
-            ? teams.find((t) => t.id === body.team_id)?.name ?? "team"
+            ? teams.find((x) => x.id === body.team_id)?.name ?? "team"
             : "organization";
-      setStatusMsg(`Shared with ${targetDesc} as ${body.relation}.`);
+      toast.success(
+        t("notes.shareSuccess", {
+          target: targetDesc,
+          relation: relationLabel(body.relation, t),
+        }),
+      );
       setEmail("");
+      qc.invalidateQueries({ queryKey: ["note-shares", noteId] });
     },
+    onError: (e) => toast.error((e as Error).message),
   });
+
+  const emailValid = target !== "user" || EMAIL_RE.test(email.trim());
+  const disabled =
+    mutation.isPending ||
+    (target === "user" && !emailValid) ||
+    (target === "team" && !teamId);
 
   return (
     <Dialog
       open={!!noteId}
       onOpenChange={(open) => {
-        if (!open) {
-          onClose();
-          setStatusMsg(null);
-        }
+        if (!open) onClose();
       }}
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Share &quot;{noteTitle}&quot;</DialogTitle>
-          <DialogDescription>
-            Grant access to a user, a team, or the whole organization.
-          </DialogDescription>
+          <DialogTitle>
+            {t("notes.shareTitle", { title: noteTitle })}
+          </DialogTitle>
+          <DialogDescription>{t("notes.shareDesc")}</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label>Target</Label>
-            <RadioGroup
+        <FieldGroup>
+          <Field>
+            <FieldLabel>{t("notes.shareTargetLabel")}</FieldLabel>
+            <ToggleGroup
+              type="single"
               value={target}
-              onValueChange={(v) => setTarget(v as Target)}
-              className="flex gap-6"
+              onValueChange={(v) => v && setTarget(v as Target)}
+              className="grid grid-cols-3 gap-2"
             >
-              <RadioLabel value="user" id="tg-user" label="User" />
-              <RadioLabel value="team" id="tg-team" label="Team" />
-              <RadioLabel value="org" id="tg-org" label="Whole org" />
-            </RadioGroup>
-          </div>
+              <ToggleGroupItem
+                value="user"
+                className="justify-center gap-2 data-[state=on]:bg-accent"
+              >
+                <User2 className="size-4" /> {t("notes.shareTargetUser")}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="team"
+                className="justify-center gap-2 data-[state=on]:bg-accent"
+                disabled={teams.length === 0}
+              >
+                <Users2 className="size-4" /> {t("notes.shareTargetTeam")}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="org"
+                className="justify-center gap-2 data-[state=on]:bg-accent"
+              >
+                <Building2 className="size-4" /> {t("notes.shareTargetOrg")}
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </Field>
 
           {target === "user" && (
-            <div className="space-y-2">
-              <Label htmlFor="share-email">Email</Label>
-              <Input
-                id="share-email"
-                type="email"
-                placeholder="bob@asunset.local"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Resolved via Keycloak — they don't need to have logged in yet.
-              </p>
-            </div>
+            <Field>
+              <FieldLabel htmlFor="share-email">
+                {t("notes.shareRecipient")}
+              </FieldLabel>
+              <UserCombobox value={email} onChange={setEmail} />
+              <p className="text-caption">{t("notes.shareRecipientHint")}</p>
+            </Field>
           )}
 
           {target === "team" && (
-            <div className="space-y-2">
-              <Label htmlFor="share-team">Team</Label>
-              <select
-                id="share-team"
-                className="w-full rounded-md border border-input bg-background h-10 px-2 text-sm"
-                value={teamId}
-                onChange={(e) => setTeamId(e.target.value)}
-              >
-                {teams.length === 0 && <option value="">(no teams)</option>}
-                {teams.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
+            <Field>
+              <FieldLabel htmlFor="share-team">{t("notes.team")}</FieldLabel>
+              <Select value={teamId} onValueChange={setTeamId}>
+                <SelectTrigger id="share-team">
+                  <SelectValue placeholder={t("notes.teamPickerPlaceholder")} />
+                </SelectTrigger>
+                <SelectContent>
+                  {teams.map((tm) => (
+                    <SelectItem key={tm.id} value={tm.id}>
+                      {tm.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          )}
+
+          {target === "org" && (
+            <div className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground flex items-start gap-2">
+              <Share2 className="mt-0.5 size-4 shrink-0" />
+              <span>
+                {t("notes.shareOrgInfo", {
+                  relation: relationLabel(relation, t),
+                })}
+              </span>
             </div>
           )}
 
-          <div className="space-y-2">
-            <Label>Permission</Label>
-            <RadioGroup
+          <Field>
+            <FieldLabel>{t("notes.sharePermission")}</FieldLabel>
+            <ToggleGroup
+              type="single"
               value={relation}
-              onValueChange={(v) => setRelation(v as Relation)}
-              className="flex gap-6"
+              onValueChange={(v) => v && setRelation(v as Relation)}
+              className="grid grid-cols-2 gap-2"
             >
-              <RadioLabel value="viewer" id="rel-viewer" label="Viewer" />
-              <RadioLabel value="editor" id="rel-editor" label="Editor" />
-            </RadioGroup>
-          </div>
-
-          {statusMsg && <p className="text-sm text-green-600">{statusMsg}</p>}
-          {mutation.error && (
-            <p className="text-sm text-destructive">
-              {(mutation.error as Error).message}
-            </p>
-          )}
-        </div>
+              <ToggleGroupItem
+                value="viewer"
+                className="justify-center data-[state=on]:bg-accent"
+              >
+                {t("common.viewer")}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="editor"
+                className="justify-center data-[state=on]:bg-accent"
+              >
+                {t("common.editor")}
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </Field>
+        </FieldGroup>
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
-            Close
+            {t("common.close")}
           </Button>
-          <Button
-            onClick={() => mutation.mutate()}
-            disabled={
-              mutation.isPending ||
-              (target === "user" && email.trim().length === 0) ||
-              (target === "team" && !teamId)
-            }
-          >
-            {mutation.isPending ? "Sharing…" : "Share"}
+          <Button onClick={() => mutation.mutate()} disabled={disabled}>
+            {mutation.isPending && <Spinner className="size-4" />}
+            {mutation.isPending ? t("common.sharing") : t("common.share")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -173,19 +220,6 @@ export function ShareDialog({
   );
 }
 
-function RadioLabel({
-  value,
-  id,
-  label,
-}: {
-  value: string;
-  id: string;
-  label: string;
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <RadioGroupItem value={value} id={id} />
-      <Label htmlFor={id}>{label}</Label>
-    </div>
-  );
+function relationLabel(r: Relation, t: (k: string) => string): string {
+  return r === "viewer" ? t("common.viewer") : t("common.editor");
 }

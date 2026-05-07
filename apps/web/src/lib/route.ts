@@ -1,9 +1,25 @@
 import { useEffect, useState } from "react";
 
-export type Route = "notes" | "teams" | "org" | "audit" | "admin";
+import { RESOURCE } from "@/config/resource";
 
-const DEFAULT: Route = "notes";
-const VALID: readonly Route[] = ["notes", "teams", "org", "audit", "admin"];
+// The resource route key is config-driven (see src/config/resource.ts) so
+// that renaming the product's domain resource propagates through the type
+// union, URL hash, and sidebar without a grep-and-replace.
+export type Route =
+  | typeof RESOURCE.routeKey
+  | "teams"
+  | "org"
+  | "audit"
+  | "admin";
+
+const DEFAULT: Route = RESOURCE.routeKey;
+const VALID: readonly Route[] = [
+  RESOURCE.routeKey,
+  "teams",
+  "org",
+  "audit",
+  "admin",
+];
 
 function parseHash(raw: string): Route {
   const v = raw.replace(/^#/, "");

@@ -1,3 +1,4 @@
+import { useT } from "@/lib/useT";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -19,25 +20,21 @@ export function IdleWarningDialog({
   onStay: () => void;
   onSignOutNow: () => void;
 }) {
+  const { t } = useT();
   return (
     <Dialog open={open}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>You'll be signed out soon</DialogTitle>
+          <DialogTitle>{t("idle.title")}</DialogTitle>
           <DialogDescription>
-            For security, inactive sessions are signed out automatically.
-            You'll be signed out in{" "}
-            <span className="font-semibold tabular-nums">
-              {formatCountdown(secondsLeft)}
-            </span>
-            .
+            {t("idle.body", { seconds: formatCountdown(secondsLeft) })}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button variant="outline" onClick={onSignOutNow}>
-            Sign out now
+            {t("idle.signOutNow")}
           </Button>
-          <Button onClick={onStay}>Stay signed in</Button>
+          <Button onClick={onStay}>{t("idle.stay")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
