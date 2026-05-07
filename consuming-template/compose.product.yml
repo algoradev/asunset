@@ -5,11 +5,22 @@
 #
 # Usage (from your consumer repo root):
 #
-#   docker compose \
+#   docker compose --env-file .env \
 #     -f vendor/asunset/compose.yml \
 #     -f vendor/asunset/compose.tailscale.yml \
 #     -f compose.product.yml \
 #     up -d
+#
+# Why `--env-file .env`: with multi-`-f`, Compose treats the directory
+# of the FIRST `-f` file (vendor/asunset/) as the project directory and
+# auto-discovers `.env` from there — but your `.env` lives at the
+# consumer root, not in vendor/asunset/. Without the flag every variable
+# expands to empty and the errors point in the wrong direction.
+#
+# Why `context: ../..` below: relative paths in overlay files resolve
+# against the project directory too (vendor/asunset/), so `.` here
+# would mean vendor/asunset/, not the consumer root. `../..` climbs
+# back out to where your apps/product-api/ actually lives.
 
 services:
 
@@ -20,9 +31,11 @@ services:
 
   product-api:
     build:
-      # Context is the consumer repo root so the image can copy both
-      # vendor/asunset/packages/asunset_core and vendor/asunset/apps/api.
-      context: .
+      # Climbs out of vendor/asunset/ (the project dir Compose picked
+      # from the first `-f`) back to the consumer root, so the image
+      # can copy both vendor/asunset/packages/asunset_core and
+      # apps/product-api/. See file header for why `.` doesn't work.
+      context: ../..
       dockerfile: apps/product-api/Dockerfile
     restart: unless-stopped
     environment:

@@ -53,11 +53,30 @@ uv sync
 ## Updating asunset
 
 ```sh
+# Make sure your tree is clean first — subtree pull lands a merge commit.
+git status
+
+# Pull in upstream changes.
 git subtree pull --prefix=vendor/asunset git@github.com:you/asunset.git main --squash
+
+# Or use the helper that hardcodes the prefix (only the upstream URL changes):
+./scripts/update-vendor.sh git@github.com:you/asunset.git
 ```
 
 Conflicts are the same as any `git merge`. Your product code lives
 OUTSIDE `vendor/asunset/` so routine asunset updates never touch it.
+
+**Expect to re-port `apps/web/` after a major UI overhaul.** If you
+forked `apps/web/` and edited `App.tsx` / `app-sidebar.tsx` / etc., a
+breaking upstream change (sidebar rewrite, router refactor, theme
+migration) means your customizations are layered on top of files that
+no longer exist. The merge will succeed at the file level but won't
+*integrate*; cleanest path is to re-port your feature pages onto the
+new shell. Pulling upstream **frequently** keeps each delta small —
+big bang merges are what hurt. Keep customizations additive (new
+files good, edits to vendored files bad) so the re-port surface stays
+small. The B3-style `CONSUMER_ROUTES` extension point in the asunset
+shell is designed exactly to shrink that surface.
 
 ## Layout
 
@@ -92,7 +111,7 @@ OUTSIDE `vendor/asunset/` so routine asunset updates never touch it.
 ## How to deploy
 
 ```sh
-docker compose \
+docker compose --env-file .env \
   -f vendor/asunset/compose.yml \
   -f vendor/asunset/compose.tailscale.yml \
   -f compose.product.yml \
@@ -102,6 +121,17 @@ docker compose \
 The overlay replaces asunset's demo `api` service with your
 `product-api`. Keycloak, OpenFGA, Postgres, Caddy, Vector all stay as
 they are — that's the platform plumbing you're building on.
+
+**Why `--env-file .env` is required.** With multiple `-f` files Compose
+sets the *project directory* to the directory of the first `-f` —
+`vendor/asunset/` in this case. It then auto-discovers `.env` from
+*that* directory, not from your consumer root. Without the explicit
+flag every env var expands to an empty string and Compose blames it on
+the wrong service ("web depends on undefined service api"). Same goes
+for any relative path in your `compose.product.yml`: it resolves
+against `vendor/asunset/`, not against the file's own location — see
+the comment block at the top of `compose.product.yml` for the climb-out
+trick (`context: ../..`).
 
 ## Extension points — what to edit
 
