@@ -65,6 +65,10 @@ func printHelp() {
 	fmt.Println()
 	fmt.Println(muted.Render("All commands except `init` read ASUNSET_MODE from .env and pick"))
 	fmt.Println(muted.Render("the right compose overlay automatically."))
+	fmt.Println()
+	fmt.Println(muted.Render("Consumer layout: when run from inside a vendor/asunset/ subtree,"))
+	fmt.Println(muted.Render("init writes .env at the consumer root, and up/down/etc. auto-include"))
+	fmt.Println(muted.Render("a sibling compose.product.yml if one exists."))
 }
 
 func cmdInit() {
@@ -480,13 +484,15 @@ func printLaunchedBanner(cfg *Config) {
 func printNextSteps(cfg *Config) {
 	fmt.Println()
 	fmt.Println(title.Render("Next steps"))
+	build := strings.Join(composeArgs(cfg, "build", "web", "keycloak-init"), " ")
+	up := strings.Join(composeArgs(cfg, "up", "-d"), " ")
 	switch {
 	case cfg.IsTLS():
 		fmt.Println(muted.Render("  Add hostnames to DNS (or /etc/hosts for local dev):"))
 		fmt.Printf("    127.0.0.1 %s %s %s\n\n", cfg.WebHost, cfg.AuthHost, cfg.APIHost)
 		fmt.Println(muted.Render("  Build + launch:"))
-		fmt.Println("    docker compose -f compose.yml -f compose.tls.yml build web keycloak-init")
-		fmt.Println("    docker compose -f compose.yml -f compose.tls.yml up -d")
+		fmt.Println("    " + build)
+		fmt.Println("    " + up)
 		fmt.Printf("\n  Open https://%s/\n", cfg.WebHost)
 
 	case cfg.IsTailscale():
@@ -495,8 +501,8 @@ func printNextSteps(cfg *Config) {
 		fmt.Println("    sudo tailscale up")
 		fmt.Printf("    sudo tailscale cert %s\n\n", cfg.TailscaleHost)
 		fmt.Println(muted.Render("  Build + launch the stack:"))
-		fmt.Println("    docker compose -f compose.yml -f compose.tailscale.yml build web keycloak-init")
-		fmt.Println("    docker compose -f compose.yml -f compose.tailscale.yml up -d")
+		fmt.Println("    " + build)
+		fmt.Println("    " + up)
 		fmt.Println()
 		fmt.Println(muted.Render("  Expose on :443 (Tailscale terminates TLS):"))
 		fmt.Println("    sudo tailscale serve --bg --https=443 localhost:5173")
@@ -504,7 +510,11 @@ func printNextSteps(cfg *Config) {
 
 	default:
 		fmt.Println(muted.Render("  Launch:"))
-		fmt.Println("    docker compose up -d")
+		fmt.Println("    " + up)
 		fmt.Println("\n  Open http://localhost:3000/")
+	}
+	if layout, err := detectLayout(); err == nil && layout.Vendored {
+		fmt.Println()
+		fmt.Println(muted.Render("  (Consumer layout detected — compose.product.yml is auto-included.)"))
 	}
 }

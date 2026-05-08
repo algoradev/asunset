@@ -8,22 +8,24 @@ import (
 	"text/template"
 )
 
-// writeConfigFiles generates .env and (for TLS modes) infra/caddy/Caddyfile
-// rooted at the repo that contains this tool. Operators should run the
-// wizard from the repo root.
+// writeConfigFiles generates .env and (for TLS modes) infra/caddy/Caddyfile.
+// .env lands at the consumer root (== asunset root in standalone layout) so
+// a single env file feeds both platform and product services in a vendored
+// deployment. Caddyfile stays in the asunset tree because compose.yml mounts
+// it from there.
 
 func writeConfigFiles(cfg *Config) error {
-	root, err := repoRoot()
+	layout, err := detectLayout()
 	if err != nil {
 		return err
 	}
 
-	if err := writeTemplate(cfg, envTemplate, filepath.Join(root, ".env")); err != nil {
+	if err := writeTemplate(cfg, envTemplate, layout.EnvPath()); err != nil {
 		return fmt.Errorf("write .env: %w", err)
 	}
 
 	if cfg.IsTLS() || cfg.IsTailscale() {
-		dest := filepath.Join(root, "infra", "caddy", "Caddyfile")
+		dest := filepath.Join(layout.AsunsetRoot, "infra", "caddy", "Caddyfile")
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return fmt.Errorf("mkdir Caddyfile dir: %w", err)
 		}

@@ -200,6 +200,100 @@ func TestTailscaleMode(t *testing.T) {
 	})
 }
 
+// withConsumerLayout simulates a vendored deployment: consumer repo
+// root contains compose.product.yml and a vendor/asunset/ subtree with
+// the asunset compose.yml. The CLI should detect this layout and write
+// .env at the consumer root, plus auto-include the product overlay in
+// composeArgs.
+func withConsumerLayout(t *testing.T, body func(consumerRoot, asunsetRoot string)) {
+	t.Helper()
+	consumerRoot := t.TempDir()
+	asunsetRoot := filepath.Join(consumerRoot, "vendor", "asunset")
+	if err := os.MkdirAll(asunsetRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(asunsetRoot, "compose.yml"), []byte("# stub\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(consumerRoot, "compose.product.yml"), []byte("# stub\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	origWd, _ := os.Getwd()
+	if err := os.Chdir(asunsetRoot); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWd) })
+	body(consumerRoot, asunsetRoot)
+}
+
+func TestConsumerLayoutDetected(t *testing.T) {
+	withConsumerLayout(t, func(consumerRoot, asunsetRoot string) {
+		layout, err := detectLayout()
+		if err != nil {
+			t.Fatalf("detectLayout: %v", err)
+		}
+		if !layout.Vendored {
+			t.Fatal("expected Vendored=true")
+		}
+		if layout.AsunsetRoot != asunsetRoot {
+			t.Fatalf("AsunsetRoot: got %q want %q", layout.AsunsetRoot, asunsetRoot)
+		}
+		if layout.ConsumerRoot != consumerRoot {
+			t.Fatalf("ConsumerRoot: got %q want %q", layout.ConsumerRoot, consumerRoot)
+		}
+		want := filepath.Join(consumerRoot, "compose.product.yml")
+		if layout.ProductOverlay != want {
+			t.Fatalf("ProductOverlay: got %q want %q", layout.ProductOverlay, want)
+		}
+		if layout.EnvPath() != filepath.Join(consumerRoot, ".env") {
+			t.Fatalf("EnvPath: got %q", layout.EnvPath())
+		}
+	})
+}
+
+func TestConsumerLayoutEnvWritesAtConsumerRoot(t *testing.T) {
+	withConsumerLayout(t, func(consumerRoot, asunsetRoot string) {
+		cfg := buildConfig(ModePlain)
+		mustGenerate(t, &cfg)
+		if _, err := os.Stat(filepath.Join(consumerRoot, ".env")); err != nil {
+			t.Fatalf("expected .env at consumer root: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(asunsetRoot, ".env")); !os.IsNotExist(err) {
+			t.Fatalf("expected NO .env inside vendor/asunset; got err=%v", err)
+		}
+	})
+}
+
+func TestConsumerLayoutComposeArgsIncludeOverlay(t *testing.T) {
+	withConsumerLayout(t, func(consumerRoot, _ string) {
+		cfg := buildConfig(ModePlain)
+		args := composeArgs(&cfg, "up", "-d")
+		joined := strings.Join(args, " ")
+		envPath := filepath.Join(consumerRoot, ".env")
+		overlay := filepath.Join(consumerRoot, "compose.product.yml")
+		if !strings.Contains(joined, "--env-file "+envPath) {
+			t.Fatalf("composeArgs missing --env-file %s; got: %s", envPath, joined)
+		}
+		if !strings.Contains(joined, "-f "+overlay) {
+			t.Fatalf("composeArgs missing -f %s; got: %s", overlay, joined)
+		}
+	})
+}
+
+func TestStandaloneLayoutComposeArgsHaveNoOverlay(t *testing.T) {
+	withRepoRoot(t, func(root string) {
+		cfg := buildConfig(ModePlain)
+		args := composeArgs(&cfg, "up", "-d")
+		joined := strings.Join(args, " ")
+		if strings.Contains(joined, "compose.product.yml") {
+			t.Fatalf("standalone layout shouldn't include product overlay; got: %s", joined)
+		}
+		if !strings.Contains(joined, "--env-file "+filepath.Join(root, ".env")) {
+			t.Fatalf("composeArgs missing --env-file; got: %s", joined)
+		}
+	})
+}
+
 func TestSecretsAreUnique(t *testing.T) {
 	// Paranoia: make sure we're not seeding rand badly.
 	seen := map[string]struct{}{}

@@ -88,12 +88,35 @@ func runLaunch(cfg *Config) (bool, error) {
 }
 
 func composeArgs(cfg *Config, subcmd ...string) []string {
-	args := []string{"docker", "compose", "-f", "compose.yml"}
+	// Best-effort layout detection — if it fails (e.g. unit tests with
+	// no compose.yml on disk), fall back to the standalone form. The
+	// commands that actually invoke compose will fail with a clearer
+	// error from `run()` if the tree is broken.
+	layout, _ := detectLayout()
+	return composeArgsFor(layout, cfg, subcmd...)
+}
+
+func composeArgsFor(layout Layout, cfg *Config, subcmd ...string) []string {
+	args := []string{"docker", "compose"}
+	// In a vendored layout, .env lives outside the cwd (cwd = AsunsetRoot,
+	// .env = ConsumerRoot/.env), so Compose's auto-discovery won't find
+	// it. Pin it explicitly. Same in standalone mode is harmless — the
+	// path resolves to ./.env.
+	if layout.EnvPath() != "" {
+		args = append(args, "--env-file", layout.EnvPath())
+	}
+	args = append(args, "-f", "compose.yml")
 	switch cfg.Mode {
 	case ModeTLSInternal, ModeTLSOperator, ModeTLSAcme:
 		args = append(args, "-f", "compose.tls.yml")
 	case ModeTailscale:
 		args = append(args, "-f", "compose.tailscale.yml")
+	}
+	// Auto-include the consumer's product overlay when present. The
+	// consumer's compose.product.yml uses `context: ../..` to climb
+	// out of cwd (AsunsetRoot) back to the consumer root.
+	if layout.ProductOverlay != "" {
+		args = append(args, "-f", layout.ProductOverlay)
 	}
 	return append(args, subcmd...)
 }
@@ -117,15 +140,15 @@ func composeLaunchSummary(cfg *Config) string {
 }
 
 // run inherits stdio so build output streams live and sudo's prompt
-// lands on the controlling terminal. Executes from the repo root so
-// docker compose finds compose.yml regardless of the caller's cwd —
-// needed for lifecycle commands invoked via /usr/local/bin/asunset.
+// lands on the controlling terminal. Executes from AsunsetRoot so the
+// relative `-f compose.yml` arg resolves; the consumer's overlay is
+// passed as an absolute path by composeArgs.
 func run(args ...string) error {
 	fmt.Println()
 	fmt.Println(muted.Render("$ " + strings.Join(args, " ")))
 	cmd := exec.Command(args[0], args[1:]...)
-	if root, err := repoRoot(); err == nil {
-		cmd.Dir = root
+	if layout, err := detectLayout(); err == nil {
+		cmd.Dir = layout.AsunsetRoot
 	}
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout

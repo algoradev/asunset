@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -19,11 +18,11 @@ type ExistingEnv struct {
 }
 
 func loadExistingEnv() (ExistingEnv, error) {
-	root, err := repoRoot()
+	layout, err := detectLayout()
 	if err != nil {
 		return ExistingEnv{}, err
 	}
-	path := filepath.Join(root, ".env")
+	path := layout.EnvPath()
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
