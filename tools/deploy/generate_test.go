@@ -294,6 +294,45 @@ func TestStandaloneLayoutComposeArgsHaveNoOverlay(t *testing.T) {
 	})
 }
 
+func TestKeycloakInternalURLByMode(t *testing.T) {
+	cases := []struct {
+		mode Mode
+		want string
+	}{
+		{ModePlain, "http://keycloak:8080"},
+		{ModeTLSInternal, "http://keycloak:8080"},
+		{ModeTLSOperator, "http://keycloak:8080"},
+		{ModeTLSAcme, "http://keycloak:8080"},
+		{ModeTailscale, "http://keycloak:8080/auth"},
+	}
+	for _, tc := range cases {
+		cfg := Config{Mode: tc.mode}
+		if got := cfg.KeycloakInternalURL(); got != tc.want {
+			t.Errorf("mode=%s: got %q want %q", tc.mode, got, tc.want)
+		}
+	}
+}
+
+func TestEnvFileEmbedsKeycloakInternalURL(t *testing.T) {
+	withRepoRoot(t, func(root string) {
+		cfg := buildConfig(ModeTailscale)
+		cfg.TailscaleHost = "demo.tail-abc.ts.net"
+		mustGenerate(t, &cfg)
+		env := generatedEnv(t, root)
+		if !strings.Contains(env, "KEYCLOAK_INTERNAL_URL=http://keycloak:8080/auth") {
+			t.Fatalf("tailscale .env missing /auth-suffixed KEYCLOAK_INTERNAL_URL; got:\n%s", env)
+		}
+	})
+	withRepoRoot(t, func(root string) {
+		cfg := buildConfig(ModeTLSAcme)
+		mustGenerate(t, &cfg)
+		env := generatedEnv(t, root)
+		if !strings.Contains(env, "KEYCLOAK_INTERNAL_URL=http://keycloak:8080\n") {
+			t.Fatalf("TLS .env should keep bare KEYCLOAK_INTERNAL_URL; got:\n%s", env)
+		}
+	})
+}
+
 func TestSecretsAreUnique(t *testing.T) {
 	// Paranoia: make sure we're not seeding rand badly.
 	seen := map[string]struct{}{}

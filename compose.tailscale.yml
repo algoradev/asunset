@@ -51,9 +51,13 @@ services:
   api:
     environment:
       KEYCLOAK_ISSUER: https://${TAILSCALE_HOST}/auth/realms/${KEYCLOAK_REALM}
-      # KEYCLOAK_INTERNAL_ISSUER stays http://keycloak:8080 from .env —
-      # but needs the /auth prefix now that KC lives under it.
-      KEYCLOAK_INTERNAL_ISSUER: http://keycloak:8080/auth/realms/${KEYCLOAK_REALM}
+      # KEYCLOAK_INTERNAL_ISSUER inherits from the base compose.yml:
+      #   ${KEYCLOAK_INTERNAL_URL}/realms/${KEYCLOAK_REALM}
+      # The wizard writes KEYCLOAK_INTERNAL_URL=http://keycloak:8080/auth
+      # for tailnet mode (vs bare for plain/TLS), so the resolved issuer
+      # already includes the /auth prefix without an override here. This
+      # is the same env var the consumer's compose.product.yml reads, so
+      # both demo and consumer paths agree.
       API_CORS_ORIGINS: https://${TAILSCALE_HOST}
     ports: !reset []
 

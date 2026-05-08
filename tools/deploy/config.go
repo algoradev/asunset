@@ -107,3 +107,21 @@ func (c Config) APIURL() string {
 	}
 	return "http://localhost:8000"
 }
+
+// KeycloakInternalURL is the in-network URL the api uses to talk to
+// Keycloak (JWKS, token introspection). Tailnet mode runs Keycloak with
+// `--http-relative-path=/auth` so Caddy can path-multiplex one hostname,
+// which means *every* Keycloak URL — internal too — needs the /auth
+// prefix. Plain + TLS modes don't set the relative path (TLS uses
+// subdomains, plain uses host-only) so the bare URL is correct.
+//
+// Bug history: this method exists because writing a bare URL in tailnet
+// mode caused the api to 404 on JWKS — invisible until first
+// authenticated request, which then 500'd. See the centum-dashboard
+// portability report's B-KCURL entry.
+func (c Config) KeycloakInternalURL() string {
+	if c.IsTailscale() {
+		return "http://keycloak:8080/auth"
+	}
+	return "http://keycloak:8080"
+}
