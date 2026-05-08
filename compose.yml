@@ -279,6 +279,22 @@ services:
         VITE_KEYCLOAK_URL: ${VITE_KEYCLOAK_URL}
         VITE_KEYCLOAK_REALM: ${VITE_KEYCLOAK_REALM}
         VITE_KEYCLOAK_CLIENT_ID: ${VITE_KEYCLOAK_CLIENT_ID}
+        VITE_BRAND_NAME: ${VITE_BRAND_NAME}
+        VITE_RESOURCE_NAME: ${VITE_RESOURCE_NAME}
+        VITE_RESOURCE_PLURAL: ${VITE_RESOURCE_PLURAL}
+        VITE_RESOURCE_NEW_LABEL: ${VITE_RESOURCE_NEW_LABEL}
+        VITE_RESOURCE_EMPTY_LABEL: ${VITE_RESOURCE_EMPTY_LABEL}
+        VITE_RESOURCE_SHARE_DESC: ${VITE_RESOURCE_SHARE_DESC}
+    # Same vars as `environment` so the dev-mode override (which runs
+    # `npm run dev` instead of building) sees them at process startup.
+    # No effect on the prod build path — assets are already baked.
+    environment:
+      VITE_BRAND_NAME: ${VITE_BRAND_NAME}
+      VITE_RESOURCE_NAME: ${VITE_RESOURCE_NAME}
+      VITE_RESOURCE_PLURAL: ${VITE_RESOURCE_PLURAL}
+      VITE_RESOURCE_NEW_LABEL: ${VITE_RESOURCE_NEW_LABEL}
+      VITE_RESOURCE_EMPTY_LABEL: ${VITE_RESOURCE_EMPTY_LABEL}
+      VITE_RESOURCE_SHARE_DESC: ${VITE_RESOURCE_SHARE_DESC}
     restart: unless-stopped
     depends_on:
       api:

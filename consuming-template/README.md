@@ -230,31 +230,49 @@ You now own `apps/web/`. Upstream improvements come through
 `git subtree pull` into `vendor/asunset/`; you cherry-pick what you
 want out of `vendor/asunset/apps/web/` and apply it to your fork.
 
-### Rebranding: two config files
+### Rebranding: env vars first, code second
 
-Asunset puts every branded chrome string behind two config files so
-the rebrand is a two-file edit, not a grep-and-replace:
+Most brand strings live in env so rebrands ride along with `.env` and
+don't churn vendored TypeScript on every upstream pull. Set the
+following in your consumer-root `.env` (compose forwards them to the
+web container as build args + runtime env):
 
-- **`apps/web/src/config/brand.ts`** — product name, sign-in copy.
-- **`apps/web/src/config/resource.ts`** — the single domain resource:
-  `routeKey`, `name`, `plural`, `newLabel`, `icon`, `emptyLabel`,
-  `shareDialogDescription`. Changing `routeKey` propagates through
-  the `Route` type union, the URL hash, and the sidebar.
+```
+VITE_BRAND_NAME=Centum
+VITE_RESOURCE_NAME=Transaction
+VITE_RESOURCE_PLURAL=Transactions
+VITE_RESOURCE_NEW_LABEL=New transaction
+VITE_RESOURCE_EMPTY_LABEL=No transactions in this view.
+VITE_RESOURCE_SHARE_DESC=Grant access to a user, a team, or the whole org.
+```
+
+That covers the sidebar header, breadcrumb, browser tab title (via
+Vite's `%VITE_BRAND_NAME%` token substitution in `index.html`), and
+the resource labels rendered across the demo pages. No code changes
+needed for these.
+
+**Two fields stay in code** because they can't come from string env:
+
+- `apps/web/src/config/resource.ts` → `routeKey` drives the `Route`
+  type union and the URL hash; must be a literal string.
+- `apps/web/src/config/resource.ts` → `icon` is a Lucide React
+  component, not a string.
 
 ```ts
-// src/config/resource.ts in a Reports fork
+// src/config/resource.ts in a Reports fork — the only edits left
 import { BarChart3 } from "lucide-react";
 export const RESOURCE = {
   routeKey: "reports",
-  name: "Report",
-  plural: "Reports",
-  newLabel: "New report",
   icon: BarChart3,
-  emptyLabel: "No reports in this view.",
-  shareDialogDescription:
-    "Grant access to a user, a team, or the whole organization.",
+  // name, plural, newLabel, emptyLabel, shareDialogDescription
+  // come from env — leave the defaults here untouched.
+  ...
 } as const;
 ```
+
+**Multiple environments, one image.** Because the brand surface is
+env-driven, a single built image can serve dev / staging / prod with
+different `VITE_BRAND_NAME` values — no per-environment fork.
 
 ### Adding secondary routes (`src/config/routes.ts`)
 
