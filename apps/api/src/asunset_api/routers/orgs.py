@@ -471,8 +471,26 @@ async def invite_member(
 
     display_name = _display_from_kc(kc_user, email_input)
     canonical_email = (kc_user.get("email") if kc_user else None) or email_input
+    email_verified = bool(kc_user and kc_user.get("emailVerified"))
 
-    # Already a member? Idempotent same-role no-op or 409 on role mismatch.
+    # Idempotency model — three reasons the same email can be re-POSTed:
+    #
+    # (a) Real duplicate: the user is already a verified, active member of
+    #     this org. → 409.
+    # (b) Pending member, same role: a previous invite committed all the
+    #     way through (KC user + FGA tuple + OrgMember row) but the user
+    #     never accepted. The admin is asking to resend. → re-bootstrap
+    #     the credential and return success; the resend endpoint exists
+    #     too, but a duplicate POST on the create endpoint shouldn't
+    #     punish the operator with a 409 they then have to translate.
+    # (c) Pending member, different role: ambiguous (change role? new
+    #     invite?). → 409 pointing at PATCH.
+    #
+    # The "partial failure" case described in the centum portability
+    # report (KC + FGA committed, OrgMember missing) falls *through* this
+    # check because `existing` is None — we re-do steps 3 + 4 below, with
+    # `tolerate_existing=True` on the FGA write so the orphan tuple from
+    # the prior attempt doesn't 400.
     existing = (
         await session.execute(
             select(OrgMember).where(
@@ -481,13 +499,46 @@ async def invite_member(
         )
     ).scalar_one_or_none()
     if existing is not None:
-        if existing.role == body.role:
+        if existing.role != body.role:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "already a member with a different role — use PATCH to change role",
+            )
+        if email_verified:
             raise HTTPException(
                 status.HTTP_409_CONFLICT, "already a member of this org"
             )
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "already a member with a different role — use PATCH to change role",
+        # Pending member, same role — treat as resend.
+        try:
+            delivery, temp_password = await _bootstrap_credential(
+                settings, user_id=user_id
+            )
+        except KeycloakAdminError as exc:
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY, f"keycloak: {exc}"
+            ) from exc
+
+        await audit.emit(
+            EventType.ORG_INVITE_RESENT,
+            action="update",
+            resource_type="org_member",
+            resource_id=user_id,
+            resource_label=canonical_email,
+            permission="org_admin",
+            payload={"role": body.role.value, "delivery": delivery},
+        )
+        return OrgInviteOut(
+            member=OrgMemberOut(
+                user=UserOut(
+                    id=user_id, email=canonical_email, display_name=display_name
+                ),
+                role=existing.role,
+                joined_at=existing.joined_at,
+                pending=True,
+            ),
+            delivery=delivery,  # type: ignore[arg-type]
+            was_new_user=False,
+            temporary_password=temp_password,
         )
 
     await _ensure_app_user(
@@ -516,9 +567,11 @@ async def invite_member(
                 object=f"organization:{org.org_id}",
             )
         )
-    await authorizer.write(writes=writes)
+    # tolerate_existing covers the partial-failure retry: KC user +
+    # FGA tuple already landed on a prior attempt that failed before
+    # OrgMember committed. Without this flag the retry 400s here.
+    await authorizer.write(writes=writes, tolerate_existing=True)
 
-    email_verified = bool(kc_user and kc_user.get("emailVerified"))
     delivery: str
     temp_password: str | None = None
     if email_verified:

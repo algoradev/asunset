@@ -52,11 +52,25 @@ from openfga_sdk.client.models import (
     ClientWriteRequest,
 )
 from openfga_sdk.credentials import CredentialConfiguration, Credentials
+from openfga_sdk.exceptions import ApiException
 
 from asunset_core.config import CoreSettings as Settings
 from asunset_core.logging import get_logger
 
 log = get_logger(__name__)
+
+
+def _is_already_exists(exc: ApiException) -> bool:
+    """OpenFGA returns HTTP 400 + write_failed_due_to_invalid_input
+    when a tuple in a write batch already exists. The user-facing
+    message is `cannot write a tuple which already exists`. We detect
+    via the message text rather than the code so the same logic works
+    against older servers whose code field was less specific.
+    """
+    if exc.status != 400:
+        return False
+    blob = (exc.error_message or "") + " " + str(getattr(exc, "body", "") or "")
+    return "already exists" in blob.lower()
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +129,8 @@ class Authorizer(Protocol):
         self,
         writes: list[Tuple] | None = None,
         deletes: list[Tuple] | None = None,
+        *,
+        tolerate_existing: bool = False,
     ) -> None: ...
 
     async def explain_note_access(self, user: str, note: str) -> str: ...
@@ -178,17 +194,54 @@ class OpenFGAAuthorizer:
         self,
         writes: list[Tuple] | None = None,
         deletes: list[Tuple] | None = None,
+        *,
+        tolerate_existing: bool = False,
     ) -> None:
+        """Apply tuple writes/deletes against the FGA store.
+
+        `tolerate_existing` (writes only): when a retry might re-issue
+        a tuple that already landed on a previous partially-failed
+        attempt — e.g. the invite flow where DB-commit can fail after
+        FGA-write succeeded — set this. The bulk write is tried first
+        (fast path); if it raises with the OpenFGA "tuple already
+        exists" 400, the writes are replayed one-at-a-time and that
+        specific error is swallowed per-tuple. Other errors propagate.
+        Deletes don't need this — OpenFGA already returns 200 when the
+        tuple doesn't exist.
+        """
         def to_client_tuples(ts: list[Tuple] | None) -> list[ClientTuple] | None:
             if not ts:
                 return None
             return [ClientTuple(user=t.user, relation=t.relation, object=t.object) for t in ts]
 
-        req = ClientWriteRequest(
-            writes=to_client_tuples(writes),
-            deletes=to_client_tuples(deletes),
-        )
-        await self._client.write(req)
+        try:
+            req = ClientWriteRequest(
+                writes=to_client_tuples(writes),
+                deletes=to_client_tuples(deletes),
+            )
+            await self._client.write(req)
+            return
+        except ApiException as exc:
+            if not tolerate_existing or not writes or not _is_already_exists(exc):
+                raise
+
+        # Replay writes one at a time, swallowing only the duplicate-tuple
+        # 400 so a half-applied prior attempt doesn't block retry.
+        for t in writes:
+            try:
+                await self._client.write(
+                    ClientWriteRequest(writes=[ClientTuple(user=t.user, relation=t.relation, object=t.object)])
+                )
+            except ApiException as exc:
+                if _is_already_exists(exc):
+                    log.info(
+                        "fga.write.tolerated_existing",
+                        extra={"user": t.user, "relation": t.relation, "object": t.object},
+                    )
+                    continue
+                raise
+        # Deletes only run if the bulk write succeeded above; this fallback
+        # path is writes-only by design (deletes already idempotent in FGA).
 
     async def explain(
         self, user: str, relation: str, object: str
