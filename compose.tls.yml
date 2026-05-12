@@ -65,44 +65,9 @@ services:
         VITE_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_WEB_CLIENT_ID}
     ports: !reset []
 
-  # Extends the base keycloak-init to ALSO update the web client's
-  # redirect_uris + web_origins to the TLS hostnames. When the overlay
-  # isn't active these env vars are unset and the extra step is a no-op.
+  # The script (mounted in the base) reads WEB_BASE_URL and rewrites
+  # asunset-web URIs + locks sslRequired=all when the value starts with
+  # https://. No command override here — base owns the script body.
   keycloak-init:
     environment:
-      TLS_WEB_HOST: ${TLS_WEB_HOST}
-      TLS_AUTH_HOST: ${TLS_AUTH_HOST}
-      TLS_API_HOST: ${TLS_API_HOST}
-    command:
-      - |
-        set -eu
-        /opt/keycloak/bin/kcadm.sh config credentials \
-          --server http://keycloak:8080 \
-          --realm master \
-          --user "$${KEYCLOAK_ADMIN}" \
-          --password "$${KEYCLOAK_ADMIN_PASSWORD}"
-
-        API_UUID=$$(/opt/keycloak/bin/kcadm.sh get clients -r "$${KEYCLOAK_REALM}" -q clientId=asunset-api --fields id --format csv --noquotes | tr -d '\r\n')
-        /opt/keycloak/bin/kcadm.sh update "clients/$${API_UUID}" \
-          -r "$${KEYCLOAK_REALM}" \
-          -s "secret=$${KEYCLOAK_API_CLIENT_SECRET}"
-        echo "keycloak-init: asunset-api secret synced from env"
-
-        if [ -n "$${TLS_WEB_HOST:-}" ]; then
-          WEB_UUID=$$(/opt/keycloak/bin/kcadm.sh get clients -r "$${KEYCLOAK_REALM}" -q clientId=asunset-web --fields id --format csv --noquotes | tr -d '\r\n')
-          /opt/keycloak/bin/kcadm.sh update "clients/$${WEB_UUID}" \
-            -r "$${KEYCLOAK_REALM}" \
-            -s "rootUrl=https://$${TLS_WEB_HOST}" \
-            -s "baseUrl=https://$${TLS_WEB_HOST}" \
-            -s "redirectUris=[\"https://$${TLS_WEB_HOST}/*\"]" \
-            -s "webOrigins=[\"https://$${TLS_WEB_HOST}\"]" \
-            -s "attributes.\"post.logout.redirect.uris\"=https://$${TLS_WEB_HOST}/*"
-          echo "keycloak-init: asunset-web URIs flipped to https://$${TLS_WEB_HOST}"
-        fi
-
-        # Lock the realm's sslRequired to all in TLS mode.
-        if [ -n "$${TLS_WEB_HOST:-}" ]; then
-          /opt/keycloak/bin/kcadm.sh update "realms/$${KEYCLOAK_REALM}" \
-            -s "sslRequired=all"
-          echo "keycloak-init: realm sslRequired=all"
-        fi
+      WEB_BASE_URL: https://${TLS_WEB_HOST}

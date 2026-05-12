@@ -97,107 +97,28 @@ services:
       retries: 30
       start_period: 60s
 
-  # One-shot: rotates the asunset-api client secret to the value in .env
-  # after Keycloak finishes importing the realm. Realm export no longer
-  # carries a literal secret — the committed JSON is now safe to share.
+  # One-shot: post-import realm bootstrap (asunset-api secret sync,
+  # manage-users grant, realm policy, TOTP enforcement, SMTP config).
+  # The script itself lives at infra/keycloak/init.sh and is mounted
+  # in — overlays (compose.tls.yml, compose.tailscale.yml) just flip
+  # KC_AUTH_URL / WEB_BASE_URL / KC_SMTP_*. See the script header for
+  # the env contract. This avoids docker compose's REPLACE-merge
+  # behavior on `command:` that previously caused overlay drift.
   keycloak-init:
     image: quay.io/keycloak/keycloak:25.0
     restart: "no"
-    entrypoint: ["/bin/bash", "-c"]
-    command:
-      - |
-        set -eu
-        /opt/keycloak/bin/kcadm.sh config credentials \
-          --server http://keycloak:8080 \
-          --realm master \
-          --user "$${KEYCLOAK_ADMIN}" \
-          --password "$${KEYCLOAK_ADMIN_PASSWORD}"
-        CLIENT_UUID=$$(/opt/keycloak/bin/kcadm.sh get clients -r "$${KEYCLOAK_REALM}" -q clientId=asunset-api --fields id --format csv --noquotes | tr -d '\r\n')
-        if [ -z "$${CLIENT_UUID}" ]; then
-          echo "keycloak-init: asunset-api client not found" >&2
-          exit 1
-        fi
-        /opt/keycloak/bin/kcadm.sh update "clients/$${CLIENT_UUID}" \
-          -r "$${KEYCLOAK_REALM}" \
-          -s "secret=$${KEYCLOAK_API_CLIENT_SECRET}"
-        echo "keycloak-init: asunset-api secret synced from env"
-
-        # Ensure the asunset-api service account has manage-users on
-        # realm-management. Required for the invite flow (create user,
-        # send magic-link email). add-roles is idempotent — no error
-        # if the role is already assigned. Existing deployments
-        # imported before manage-users was in the realm export get it
-        # here on the next boot.
-        /opt/keycloak/bin/kcadm.sh add-roles -r "$${KEYCLOAK_REALM}" \
-          --uusername=service-account-asunset-api \
-          --cclientid=realm-management \
-          --rolename=manage-users 2>/dev/null || true
-        echo "keycloak-init: asunset-api service account has manage-users"
-
-        # Realm-level HIPAA/NYDFS knobs: --import-realm uses
-        # IGNORE_EXISTING on re-boots, so updates to realm-export.json
-        # don't propagate into an already-imported realm. Push them via
-        # kcadm so they land on every start. Idempotent.
-        /opt/keycloak/bin/kcadm.sh update "realms/$${KEYCLOAK_REALM}" \
-          -s "ssoSessionIdleTimeout=900" \
-          -s "ssoSessionMaxLifespan=14400" \
-          -s "otpPolicyType=totp" \
-          -s "otpPolicyAlgorithm=HmacSHA1" \
-          -s "otpPolicyDigits=6" \
-          -s "otpPolicyPeriod=30" \
-          -s "otpPolicyLookAheadWindow=1"
-        echo "keycloak-init: realm session + OTP policy updated"
-
-        # Enforce TOTP on every user holding platform_admin. HIPAA
-        # §164.312(a)(2)(i) + NYDFS 500.12 both treat MFA on privileged
-        # accounts as table stakes. Skip users who already have a TOTP
-        # credential — overwriting requiredActions on an enrolled user
-        # forces re-enrollment, which piles up orphan credentials and
-        # makes the OTP picker nondeterministic.
-        ADMIN_USERS=$$(/opt/keycloak/bin/kcadm.sh get "roles/platform_admin/users" -r "$${KEYCLOAK_REALM}" --fields username --format csv --noquotes 2>/dev/null | tr -d '\r"')
-        for U in $$ADMIN_USERS; do
-          [ -z "$$U" ] && continue
-          # NB: can't use the name UID — readonly bash built-in.
-          USER_UID=$$(/opt/keycloak/bin/kcadm.sh get users -r "$${KEYCLOAK_REALM}" -q username=$$U --fields id --format csv --noquotes | tr -d '\r\n"')
-          [ -z "$$USER_UID" ] && continue
-          HAS_TOTP=$$(/opt/keycloak/bin/kcadm.sh get "users/$$USER_UID/credentials" -r "$${KEYCLOAK_REALM}" --fields type --format csv --noquotes 2>/dev/null | tr -d '\r"' | grep -cx 'otp' || true)
-          if [ "$$HAS_TOTP" -gt 0 ]; then
-            echo "keycloak-init: TOTP already enrolled for $$U — skipping"
-            continue
-          fi
-          /opt/keycloak/bin/kcadm.sh update "users/$$USER_UID" \
-            -r "$${KEYCLOAK_REALM}" \
-            -s 'requiredActions=["CONFIGURE_TOTP"]' 2>/dev/null || true
-          echo "keycloak-init: TOTP required for $$U"
-        done
-
-        # Realm SMTP. Drives Keycloak's own emails — verify-email,
-        # forgot-password, magic-link invites — which are *separate*
-        # from the app-side Notifier. Skip entirely if KC_SMTP_HOST is
-        # unset so local dev / CI never wires up real delivery by
-        # accident. Compatible with Resend SMTP (smtp.resend.com:587,
-        # user=resend, password=<api-key>, starttls=true).
-        if [ -n "$${KC_SMTP_HOST:-}" ]; then
-          /opt/keycloak/bin/kcadm.sh update "realms/$${KEYCLOAK_REALM}" \
-            -s "smtpServer.host=$${KC_SMTP_HOST}" \
-            -s "smtpServer.port=$${KC_SMTP_PORT:-587}" \
-            -s "smtpServer.from=$${KC_SMTP_FROM}" \
-            -s "smtpServer.fromDisplayName=$${KC_SMTP_FROM_DISPLAY_NAME:-}" \
-            -s "smtpServer.replyTo=$${KC_SMTP_REPLY_TO:-}" \
-            -s "smtpServer.ssl=$${KC_SMTP_SSL:-false}" \
-            -s "smtpServer.starttls=$${KC_SMTP_STARTTLS:-true}" \
-            -s "smtpServer.auth=$${KC_SMTP_AUTH:-true}" \
-            -s "smtpServer.user=$${KC_SMTP_USER:-}" \
-            -s "smtpServer.password=$${KC_SMTP_PASSWORD:-}"
-          echo "keycloak-init: realm SMTP configured ($${KC_SMTP_HOST})"
-        else
-          echo "keycloak-init: KC_SMTP_HOST unset — skipping realm SMTP (Keycloak emails disabled)"
-        fi
+    entrypoint: ["/bin/bash"]
+    command: ["/opt/asunset/init.sh"]
+    volumes:
+      - ./infra/keycloak/init.sh:/opt/asunset/init.sh:ro
     environment:
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM}
       KEYCLOAK_API_CLIENT_SECRET: ${KEYCLOAK_API_CLIENT_SECRET}
+      # KC_AUTH_URL + WEB_BASE_URL default unset here; the tailscale
+      # overlay sets KC_AUTH_URL=http://keycloak:8080/auth and both TLS
+      # overlays set WEB_BASE_URL to the public hostname.
       KC_SMTP_HOST: ${KC_SMTP_HOST:-}
       KC_SMTP_PORT: ${KC_SMTP_PORT:-}
       KC_SMTP_USER: ${KC_SMTP_USER:-}
