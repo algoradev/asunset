@@ -85,6 +85,16 @@ export type OrgMember = {
   user: User;
   role: Role;
   joined_at: string;
+  // True when the member hasn't accepted their magic-link invite yet
+  // (Keycloak `emailVerified=false`). Only populated for org admins;
+  // for regular members the backend always returns `false`.
+  pending: boolean;
+};
+
+export type InviteResult = {
+  member: OrgMember;
+  delivery: "magic_link" | "app_email" | "none";
+  was_new_user: boolean;
 };
 
 export type Team = {
@@ -204,6 +214,24 @@ export const api = {
   removeOrgMember: (f: Fetcher, user_id: string) =>
     request<void>(
       `/orgs/current/members/${user_id}`,
+      { method: "DELETE" },
+      f,
+    ),
+  inviteOrgMember: (f: Fetcher, body: { email: string; role: Role }) =>
+    request<InviteResult>(
+      "/orgs/current/invites",
+      { method: "POST", body: JSON.stringify(body) },
+      f,
+    ),
+  resendOrgInvite: (f: Fetcher, user_id: string) =>
+    request<void>(
+      `/orgs/current/invites/${user_id}/resend`,
+      { method: "POST" },
+      f,
+    ),
+  revokeOrgInvite: (f: Fetcher, user_id: string) =>
+    request<void>(
+      `/orgs/current/invites/${user_id}`,
       { method: "DELETE" },
       f,
     ),

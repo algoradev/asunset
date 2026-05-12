@@ -24,6 +24,9 @@ export type MemberRow = {
   user: User;
   role: Role;
   joined_at: string;
+  // Optional — only populated for org members. Team-member rows leave
+  // this unset; the badge only renders when the field is true.
+  pending?: boolean;
 };
 
 export function MemberTable({
@@ -67,8 +70,15 @@ export function MemberTable({
                     </AvatarFallback>
                   </Avatar>
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">
-                      {m.user.display_name}
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-sm font-medium">
+                        {m.user.display_name}
+                      </span>
+                      {m.pending && (
+                        <Badge variant="warning" size="sm">
+                          {t("common.pending")}
+                        </Badge>
+                      )}
                     </div>
                     <div className="truncate text-xs text-muted-foreground">
                       {m.user.email}

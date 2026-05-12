@@ -21,7 +21,14 @@ from asunset_core.auth.authorizer import (
     Tuple,
     make_openfga_client,
 )
-from asunset_core.auth.keycloak_admin import find_user_by_email
+from asunset_core.auth.keycloak_admin import (
+    KeycloakAdminError,
+    UserAlreadyExistsError,
+    create_user,
+    find_user_by_email,
+    get_user,
+    send_actions_email,
+)
 from asunset_core.auth.oidc import get_current_principal, require_platform_admin
 from asunset_core.auth.principal import Principal
 from asunset_core.db.models import (
@@ -63,6 +70,11 @@ __all__ = [
     "get_current_principal",
     "require_platform_admin",
     "find_user_by_email",
+    "get_user",
+    "create_user",
+    "send_actions_email",
+    "KeycloakAdminError",
+    "UserAlreadyExistsError",
     # authz
     "Authorizer",
     "OpenFGAAuthorizer",

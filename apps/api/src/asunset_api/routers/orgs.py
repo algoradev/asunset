@@ -1,35 +1,55 @@
-"""Org-level endpoints: read current org, manage members."""
+"""Org-level endpoints: read current org, manage members, invite + revoke."""
 
 from __future__ import annotations
 
+import asyncio
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from asunset_core.audit.events import EventType
 from asunset_core.audit.sink import AuditSink
 from asunset_core.auth.authorizer import Authorizer, Tuple
+from asunset_core.auth.keycloak_admin import (
+    KeycloakAdminError,
+    create_user,
+    find_user_by_email,
+    get_user,
+    send_actions_email,
+)
 from asunset_core.auth.oidc import get_current_principal
 from asunset_core.auth.principal import Principal
 from asunset_core.db.models import AppUser, MemberRole, Organization, OrgMember, TeamMember
+from asunset_core.notifications import EmailService
+from asunset_api.config import Settings, get_settings
 from asunset_api.routers.deps import (
     OrgContext,
     get_audit_sink,
     get_authorizer,
     get_current_org,
     get_db,
+    get_email_service,
     require_org_admin,
 )
 from asunset_api.routers.schemas import (
     MemberRoleUpdateIn,
+    OrgInviteIn,
+    OrgInviteOut,
     OrgMemberAddIn,
     OrgMemberOut,
     OrgOut,
     UserOut,
 )
+
+# Keycloak's web client — `executeActionsEmail` uses it to resolve the
+# post-set-password redirect, which `keycloak-init` has already pinned
+# per deployment mode (tailnet host / TLS host / dev). So the magic
+# link works without us caring about hostnames.
+INVITE_CLIENT_ID = "asunset-web"
+INVITE_LINK_LIFESPAN_SECONDS = 7 * 24 * 60 * 60  # 7 days
 
 router = APIRouter(prefix="/orgs", tags=["orgs"])
 
@@ -92,13 +112,33 @@ async def list_members(
             )
 
     result = await session.execute(stmt)
+    rows = result.all()
+
+    # `pending` is only meaningful for admins (regular members don't see
+    # invite state — that's an admin concern). Cuts most page loads down
+    # to zero Keycloak admin calls.
+    pending_map: dict[UUID, bool] = {}
+    if org.is_admin and rows:
+        settings = get_settings()
+        kc_users = await asyncio.gather(
+            *(get_user(settings, str(u.id)) for (_, u) in rows),
+            return_exceptions=True,
+        )
+        for (_, u), kc in zip(rows, kc_users):
+            # If Keycloak is unreachable for one member, fail open
+            # (pending=False) rather than blocking the whole list.
+            pending_map[u.id] = bool(
+                isinstance(kc, dict) and not kc.get("emailVerified", False)
+            )
+
     return [
         OrgMemberOut(
             user=UserOut(id=u.id, email=u.email, display_name=u.display_name),
             role=m.role,
             joined_at=m.joined_at,
+            pending=pending_map.get(u.id, False),
         )
-        for (m, u) in result.all()
+        for (m, u) in rows
     ]
 
 
@@ -256,6 +296,403 @@ async def remove_member(
 
     await audit.emit(
         EventType.ORG_MEMBER_REMOVED,
+        action="delete",
+        resource_type="org_member",
+        resource_id=user_id,
+        resource_label=user_email,
+        permission="org_admin",
+        payload={"prev_role": prev_role.value},
+    )
+
+
+# --- invite flow -----------------------------------------------------
+#
+# Three endpoints, all org-admin-only. The invite endpoint handles every
+# branch (new KC user, existing-unverified, existing-verified-but-not-
+# in-org) so the caller types an email and hits one button — no UI-side
+# branching on "is this person already in our system?".
+
+
+async def _ensure_app_user(
+    session: AsyncSession,
+    *,
+    user_id: UUID,
+    email: str,
+    display_name: str,
+) -> AppUser:
+    """Upsert an AppUser row mirroring the Keycloak identity.
+
+    Same shape as /users/lookup's upsert — keeps the local mirror in
+    sync. Display name comes from KC's firstName+lastName when
+    available, else falls back to the email so list endpoints have a
+    label to render.
+    """
+    stmt = (
+        pg_insert(AppUser)
+        .values(id=user_id, email=email, display_name=display_name)
+        .on_conflict_do_update(
+            index_elements=[AppUser.id],
+            set_={"email": email, "display_name": display_name},
+        )
+        .returning(AppUser)
+    )
+    return (await session.execute(stmt)).scalar_one()
+
+
+def _display_from_kc(kc_user: dict | None, fallback_email: str) -> str:
+    if not kc_user:
+        return fallback_email
+    first = (kc_user.get("firstName") or "").strip()
+    last = (kc_user.get("lastName") or "").strip()
+    full = f"{first} {last}".strip()
+    return full or kc_user.get("username") or fallback_email
+
+
+@router.post(
+    "/current/invites",
+    response_model=OrgInviteOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def invite_member(
+    body: OrgInviteIn,
+    session: AsyncSession = Depends(get_db),
+    org: OrgContext = Depends(require_org_admin),
+    authorizer: Authorizer = Depends(get_authorizer),
+    audit: AuditSink = Depends(get_audit_sink),
+    email_service: EmailService = Depends(get_email_service),
+    settings: Settings = Depends(get_settings),
+    principal: Principal = Depends(get_current_principal),
+) -> OrgInviteOut:
+    """Invite a user to this org by email.
+
+    Three cases handled internally:
+
+    1. **No Keycloak user yet** — create one with
+       `requiredActions=["UPDATE_PASSWORD"]`, fire Keycloak's magic-link
+       email (`delivery: magic_link`, `was_new_user: true`).
+    2. **Keycloak user exists but hasn't verified email** — they were
+       invited before and never accepted. Resend the magic link
+       (`delivery: magic_link`, `was_new_user: false`).
+    3. **Keycloak user exists and is verified** — send our app-side
+       `org_member_added` template (`delivery: app_email`).
+
+    If realm SMTP isn't configured and we hit case 1 or 2, Keycloak's
+    `executeActionsEmail` will fail. We catch the error and degrade to
+    `delivery: none` — the membership still lands, the operator is
+    expected to share the password out-of-band. That matches what
+    centum-dashboard does today as a stopgap and lets the flow keep
+    working pre-SMTP-setup.
+    """
+    email_input = body.email.strip()
+    if "@" not in email_input:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "email must contain '@'"
+        )
+
+    kc_user = await find_user_by_email(settings, email_input)
+    was_new_user = kc_user is None
+
+    if was_new_user:
+        try:
+            new_id = await create_user(
+                settings,
+                email=email_input,
+                required_actions=["UPDATE_PASSWORD"],
+                email_verified=False,
+                enabled=True,
+            )
+        except KeycloakAdminError as exc:
+            # Surface as a clean 502 so the admin UI can show a useful
+            # error instead of a generic 500.
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                f"keycloak: {exc}",
+            ) from exc
+        user_id = UUID(new_id)
+        # Re-fetch so display_name uses whatever KC normalized.
+        kc_user = await get_user(settings, new_id)
+    else:
+        user_id = UUID(kc_user["id"])
+
+    display_name = _display_from_kc(kc_user, email_input)
+    canonical_email = (kc_user.get("email") if kc_user else None) or email_input
+
+    # Already a member? Idempotent same-role no-op or 409 on role mismatch.
+    existing = (
+        await session.execute(
+            select(OrgMember).where(
+                OrgMember.org_id == org.org_id, OrgMember.user_id == user_id
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        if existing.role == body.role:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, "already a member of this org"
+            )
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "already a member with a different role — use PATCH to change role",
+        )
+
+    await _ensure_app_user(
+        session,
+        user_id=user_id,
+        email=canonical_email,
+        display_name=display_name,
+    )
+
+    member = OrgMember(org_id=org.org_id, user_id=user_id, role=body.role)
+    session.add(member)
+    await session.flush([member])
+
+    writes = [
+        Tuple(
+            user=f"user:{user_id}",
+            relation="member",
+            object=f"organization:{org.org_id}",
+        )
+    ]
+    if body.role == MemberRole.admin:
+        writes.append(
+            Tuple(
+                user=f"user:{user_id}",
+                relation="admin",
+                object=f"organization:{org.org_id}",
+            )
+        )
+    await authorizer.write(writes=writes)
+
+    email_verified = bool(kc_user and kc_user.get("emailVerified"))
+    delivery: str
+    if email_verified:
+        # Existing verified user — use our own notifier.
+        org_row = (
+            await session.execute(
+                select(Organization).where(Organization.id == org.org_id)
+            )
+        ).scalar_one()
+        inviter_name = principal.display_name or principal.email or "an admin"
+        try:
+            await email_service.send(
+                template="org_member_added",
+                to=canonical_email,
+                context={
+                    "org_name": org_row.name,
+                    "role": body.role.value,
+                    "inviter_name": inviter_name,
+                    "app_url": settings.keycloak_issuer.rsplit("/realms", 1)[0],
+                },
+            )
+            delivery = "app_email"
+        except Exception as exc:  # noqa: BLE001
+            # Don't roll back the membership because mail failed; just
+            # report it so the admin knows.
+            log_msg = str(exc)[:200]
+            delivery = "none"
+            await audit.emit(
+                EventType.ORG_MEMBER_INVITED,
+                action="create",
+                resource_type="org_member",
+                resource_id=user_id,
+                resource_label=canonical_email,
+                permission="org_admin",
+                success=False,
+                payload={
+                    "role": body.role.value,
+                    "delivery": delivery,
+                    "was_new_user": was_new_user,
+                    "error": log_msg,
+                },
+            )
+            return OrgInviteOut(
+                member=OrgMemberOut(
+                    user=UserOut(
+                        id=user_id,
+                        email=canonical_email,
+                        display_name=display_name,
+                    ),
+                    role=member.role,
+                    joined_at=member.joined_at,
+                    pending=False,
+                ),
+                delivery="none",
+                was_new_user=was_new_user,
+            )
+    else:
+        # New user or existing-unverified — Keycloak magic link.
+        try:
+            await send_actions_email(
+                settings,
+                user_id=str(user_id),
+                actions=["UPDATE_PASSWORD"],
+                client_id=INVITE_CLIENT_ID,
+                lifespan_seconds=INVITE_LINK_LIFESPAN_SECONDS,
+            )
+            delivery = "magic_link"
+        except KeycloakAdminError:
+            # Most likely: realm SMTP not configured. Keep the
+            # membership; let the admin distribute the password
+            # out-of-band. Matches centum's pre-SMTP runbook.
+            delivery = "none"
+
+    await audit.emit(
+        EventType.ORG_MEMBER_INVITED,
+        action="create",
+        resource_type="org_member",
+        resource_id=user_id,
+        resource_label=canonical_email,
+        permission="org_admin",
+        payload={
+            "role": body.role.value,
+            "delivery": delivery,
+            "was_new_user": was_new_user,
+        },
+    )
+
+    return OrgInviteOut(
+        member=OrgMemberOut(
+            user=UserOut(
+                id=user_id, email=canonical_email, display_name=display_name
+            ),
+            role=member.role,
+            joined_at=member.joined_at,
+            pending=not email_verified,
+        ),
+        delivery=delivery,  # type: ignore[arg-type]
+        was_new_user=was_new_user,
+    )
+
+
+@router.post(
+    "/current/invites/{user_id}/resend",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def resend_invite(
+    user_id: UUID,
+    session: AsyncSession = Depends(get_db),
+    org: OrgContext = Depends(require_org_admin),
+    audit: AuditSink = Depends(get_audit_sink),
+    settings: Settings = Depends(get_settings),
+) -> None:
+    """Re-trigger the magic-link email for a user who hasn't accepted yet."""
+    member = (
+        await session.execute(
+            select(OrgMember).where(
+                OrgMember.org_id == org.org_id, OrgMember.user_id == user_id
+            )
+        )
+    ).scalar_one_or_none()
+    if member is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not a member")
+
+    kc_user = await get_user(settings, str(user_id))
+    if kc_user is None:
+        # FGA/DB has them but Keycloak doesn't — orphan row.
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "user not found in Keycloak — revoke this membership instead",
+        )
+    if kc_user.get("emailVerified"):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "user has already accepted — nothing to resend"
+        )
+
+    try:
+        await send_actions_email(
+            settings,
+            user_id=str(user_id),
+            actions=["UPDATE_PASSWORD"],
+            client_id=INVITE_CLIENT_ID,
+            lifespan_seconds=INVITE_LINK_LIFESPAN_SECONDS,
+        )
+    except KeycloakAdminError as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, f"keycloak: {exc}"
+        ) from exc
+
+    user_email = (
+        await session.execute(select(AppUser.email).where(AppUser.id == user_id))
+    ).scalar_one_or_none()
+
+    await audit.emit(
+        EventType.ORG_INVITE_RESENT,
+        action="update",
+        resource_type="org_member",
+        resource_id=user_id,
+        resource_label=user_email,
+        permission="org_admin",
+        payload={},
+    )
+
+
+@router.delete(
+    "/current/invites/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def revoke_invite(
+    user_id: UUID,
+    session: AsyncSession = Depends(get_db),
+    org: OrgContext = Depends(require_org_admin),
+    authorizer: Authorizer = Depends(get_authorizer),
+    audit: AuditSink = Depends(get_audit_sink),
+    settings: Settings = Depends(get_settings),
+) -> None:
+    """Revoke a pending invite — drops the org_member row + FGA tuples.
+
+    Only valid for users who haven't accepted yet. For an already-
+    accepted member, use DELETE /current/members/{user_id} (regular
+    removal) so the audit trail distinguishes "I revoked an unanswered
+    invite" from "I removed a member who was actually here".
+
+    The Keycloak user is left in place. Re-inviting later picks up the
+    same `sub` and the user can finally set a password if they want to.
+    Operators who actually want to delete the orphan KC account do so
+    from the Keycloak admin console.
+    """
+    member = (
+        await session.execute(
+            select(OrgMember).where(
+                OrgMember.org_id == org.org_id, OrgMember.user_id == user_id
+            )
+        )
+    ).scalar_one_or_none()
+    if member is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not a member")
+
+    kc_user = await get_user(settings, str(user_id))
+    if kc_user and kc_user.get("emailVerified"):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "user has already accepted — use DELETE /members/{user_id} to remove",
+        )
+
+    user_email = (
+        await session.execute(select(AppUser.email).where(AppUser.id == user_id))
+    ).scalar_one_or_none()
+
+    prev_role = member.role
+    await session.delete(member)
+
+    deletes = [
+        Tuple(
+            user=f"user:{user_id}",
+            relation="member",
+            object=f"organization:{org.org_id}",
+        )
+    ]
+    if prev_role == MemberRole.admin:
+        deletes.append(
+            Tuple(
+                user=f"user:{user_id}",
+                relation="admin",
+                object=f"organization:{org.org_id}",
+            )
+        )
+    await authorizer.write(deletes=deletes)
+
+    await audit.emit(
+        EventType.ORG_INVITE_REVOKED,
         action="delete",
         resource_type="org_member",
         resource_id=user_id,

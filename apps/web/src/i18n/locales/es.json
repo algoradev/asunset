@@ -50,7 +50,30 @@
     "member_one": "{{count}} miembro",
     "member_other": "{{count}} miembros",
     "entry_one": "{{count}} entrada",
-    "entry_other": "{{count}} entradas"
+    "entry_other": "{{count}} entradas",
+    "pending": "Pendiente",
+    "email": "Correo"
+  },
+  "invite": {
+    "button": "Invitar miembro",
+    "title": "Invitar miembro",
+    "description": "Crearemos un usuario en Keycloak y enviaremos un enlace único para que defina su contraseña y se una a la organización.",
+    "emailPlaceholder": "nombre@ejemplo.com",
+    "emailLabel": "Correo electrónico",
+    "roleLabel": "Rol",
+    "submit": "Enviar invitación",
+    "submitting": "Enviando…",
+    "successMagicLink": "Invitación enviada. Se envió un enlace mágico a {{email}}.",
+    "successAppEmail": "{{email}} fue añadido y notificado.",
+    "successNoMail": "{{email}} añadido. El SMTP no está configurado — comparte la contraseña manualmente.",
+    "alreadyMember": "{{email}} ya es miembro de esta organización.",
+    "resendSuccess": "Enlace mágico reenviado.",
+    "resendFailed": "No se pudo reenviar la invitación.",
+    "revoke": "Revocar invitación",
+    "revokeConfirm": "¿Revocar la invitación pendiente de {{email}}? El enlace existente dejará de funcionar.",
+    "revokeSuccess": "Invitación revocada.",
+    "revokeFailed": "No se pudo revocar la invitación.",
+    "resend": "Reenviar invitación"
   },
   "brand": {
     "signInPrompt": "Inicia sesión para continuar a tu espacio de trabajo.",

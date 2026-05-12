@@ -50,7 +50,30 @@
     "member_one": "{{count}} member",
     "member_other": "{{count}} members",
     "entry_one": "{{count}} entry",
-    "entry_other": "{{count}} entries"
+    "entry_other": "{{count}} entries",
+    "pending": "Pending",
+    "email": "Email"
+  },
+  "invite": {
+    "button": "Invite member",
+    "title": "Invite member",
+    "description": "We'll create a Keycloak user and email a one-time link they can use to set their password and join the org.",
+    "emailPlaceholder": "name@example.com",
+    "emailLabel": "Email",
+    "roleLabel": "Role",
+    "submit": "Send invite",
+    "submitting": "Sending…",
+    "successMagicLink": "Invite sent. {{email}} has been emailed a magic link.",
+    "successAppEmail": "{{email}} has been added and notified.",
+    "successNoMail": "{{email}} added. SMTP isn't configured — share their password manually.",
+    "alreadyMember": "{{email}} is already a member of this organization.",
+    "resendSuccess": "Magic link resent.",
+    "resendFailed": "Couldn't resend invite.",
+    "revoke": "Revoke invite",
+    "revokeConfirm": "Revoke {{email}}'s pending invite? They won't be able to use any link they already have.",
+    "revokeSuccess": "Invite revoked.",
+    "revokeFailed": "Couldn't revoke invite.",
+    "resend": "Resend invite"
   },
   "brand": {
     "signInPrompt": "Sign in to continue to your workspace.",

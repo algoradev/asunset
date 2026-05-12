@@ -1,13 +1,11 @@
-import { useState } from "react";
 import { useAuth } from "react-oidc-context";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2 } from "lucide-react";
+import { Building2, MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
 
 import { api, type Role } from "@/api";
-import { AddMemberRow } from "@/components/AddMemberRow";
 import { CopyButton } from "@/components/CopyButton";
-import { MemberTable } from "@/components/MemberTable";
+import { MemberTable, type MemberRow } from "@/components/MemberTable";
 import { PageHeader } from "@/components/PageHeader";
 import { useT } from "@/lib/useT";
 import {
@@ -23,8 +21,16 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/States";
+import { InviteMemberDialog } from "./InviteMemberDialog";
 
 export function OrgPage({ orgRole }: { orgRole: Role }) {
   const auth = useAuth();
@@ -33,8 +39,6 @@ export function OrgPage({ orgRole }: { orgRole: Role }) {
   const qc = useQueryClient();
 
   const isAdmin = orgRole === "admin";
-  const [email, setEmail] = useState("");
-  const [role, setRole] = useState<Role>("member");
 
   const orgQ = useQuery({
     queryKey: ["org"],
@@ -43,19 +47,6 @@ export function OrgPage({ orgRole }: { orgRole: Role }) {
   const membersQ = useQuery({
     queryKey: ["org-members"],
     queryFn: () => api.listOrgMembers(f),
-  });
-
-  const addM = useMutation({
-    mutationFn: async () => {
-      const user = await api.lookupUser(f, email.trim());
-      return api.addOrgMember(f, { user_id: user.id, role });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["org-members"] });
-      setEmail("");
-      toast.success(t("org.memberAdded"));
-    },
-    onError: (e) => toast.error((e as Error).message),
   });
 
   const updateRoleM = useMutation({
@@ -77,9 +68,28 @@ export function OrgPage({ orgRole }: { orgRole: Role }) {
     onError: (e) => toast.error((e as Error).message),
   });
 
+  const resendM = useMutation({
+    mutationFn: (userId: string) => api.resendOrgInvite(f, userId),
+    onSuccess: () => toast.success(t("invite.resendSuccess")),
+    onError: (e) => toast.error((e as Error).message || t("invite.resendFailed")),
+  });
+
+  const revokeM = useMutation({
+    mutationFn: (userId: string) => api.revokeOrgInvite(f, userId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["org-members"] });
+      toast.success(t("invite.revokeSuccess"));
+    },
+    onError: (e) => toast.error((e as Error).message || t("invite.revokeFailed")),
+  });
+
   return (
     <div className="page-container">
-      <PageHeader title={t("org.title")} description={t("org.description")} />
+      <PageHeader
+        title={t("org.title")}
+        description={t("org.description")}
+        actions={isAdmin ? <InviteMemberDialog /> : undefined}
+      />
 
       <Card size="sm">
         <CardContent className="flex items-start gap-4">
@@ -154,43 +164,21 @@ export function OrgPage({ orgRole }: { orgRole: Role }) {
             }
             actions={
               isAdmin
-                ? (m) => (
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={removeM.isPending}
-                          className="text-muted-foreground hover:text-destructive"
-                        >
-                          {t("common.remove")}
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>
-                            {t("org.removeMemberTitle", {
-                              name: m.user.display_name,
-                            })}
-                          </AlertDialogTitle>
-                          <AlertDialogDescription>
-                            {t("org.removeMemberDesc")}
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>
-                            {t("common.cancel")}
-                          </AlertDialogCancel>
-                          <AlertDialogAction
-                            className={buttonVariants({ variant: "destructive" })}
-                            onClick={() => removeM.mutate(m.user.id)}
-                          >
-                            {t("common.remove")}
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  )
+                ? (m) =>
+                    m.pending ? (
+                      <PendingActions
+                        m={m}
+                        onResend={() => resendM.mutate(m.user.id)}
+                        onRevoke={() => revokeM.mutate(m.user.id)}
+                        busy={resendM.isPending || revokeM.isPending}
+                      />
+                    ) : (
+                      <RemoveAction
+                        name={m.user.display_name}
+                        onConfirm={() => removeM.mutate(m.user.id)}
+                        busy={removeM.isPending}
+                      />
+                    )
                 : undefined
             }
           />
@@ -200,22 +188,114 @@ export function OrgPage({ orgRole }: { orgRole: Role }) {
             {t("org.noMembersYet")}
           </p>
         )}
-
-        {isAdmin && (
-          <div className="rounded-lg border bg-card p-4">
-            <AddMemberRow
-              inputId="org-add-email"
-              roleId="org-add-role"
-              email={email}
-              onEmailChange={setEmail}
-              role={role}
-              onRoleChange={setRole}
-              onSubmit={() => addM.mutate()}
-              busy={addM.isPending}
-            />
-          </div>
-        )}
       </div>
     </div>
+  );
+}
+
+function RemoveAction({
+  name,
+  onConfirm,
+  busy,
+}: {
+  name: string;
+  onConfirm: () => void;
+  busy: boolean;
+}) {
+  const { t } = useT();
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={busy}
+          className="text-muted-foreground hover:text-destructive"
+        >
+          {t("common.remove")}
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {t("org.removeMemberTitle", { name })}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {t("org.removeMemberDesc")}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+          <AlertDialogAction
+            className={buttonVariants({ variant: "destructive" })}
+            onClick={onConfirm}
+          >
+            {t("common.remove")}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+function PendingActions({
+  m,
+  onResend,
+  onRevoke,
+  busy,
+}: {
+  m: MemberRow;
+  onResend: () => void;
+  onRevoke: () => void;
+  busy: boolean;
+}) {
+  const { t } = useT();
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={busy}
+          className="size-8 p-0 text-muted-foreground"
+          aria-label="Invite actions"
+        >
+          <MoreHorizontal className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuItem onSelect={onResend}>
+          {t("invite.resend")}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <DropdownMenuItem
+              onSelect={(e) => e.preventDefault()}
+              className="text-destructive focus:text-destructive"
+            >
+              {t("invite.revoke")}
+            </DropdownMenuItem>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t("invite.revoke")}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {t("invite.revokeConfirm", { email: m.user.email })}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+              <AlertDialogAction
+                className={buttonVariants({ variant: "destructive" })}
+                onClick={onRevoke}
+              >
+                {t("invite.revoke")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

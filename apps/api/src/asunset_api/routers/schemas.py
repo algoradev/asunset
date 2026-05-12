@@ -49,6 +49,11 @@ class OrgMemberOut(BaseModel):
     user: UserOut
     role: MemberRole
     joined_at: datetime
+    # True when the recipient hasn't accepted their magic-link invite yet
+    # (Keycloak `emailVerified=false`). Only populated for org admins —
+    # regular members see `False` regardless. Drives the "Pending" badge
+    # in the members table and unlocks the resend/revoke kebab actions.
+    pending: bool = False
 
 
 class OrgMemberAddIn(BaseModel):
@@ -58,6 +63,32 @@ class OrgMemberAddIn(BaseModel):
 
 class MemberRoleUpdateIn(BaseModel):
     role: MemberRole
+
+
+class OrgInviteIn(BaseModel):
+    # Plain str + a minimal sanity check. EmailStr would reject `.local`
+    # / `.test` TLDs that enterprise directories legitimately use, and
+    # Keycloak does its own validation downstream.
+    email: str = Field(min_length=3, max_length=320)
+    role: MemberRole = MemberRole.member
+
+
+class OrgInviteOut(BaseModel):
+    """Result of an invite call. Semantics:
+
+    - `member` is the (now-existing) org_member row, same shape as any
+      other listing — caller can splice it straight into a members
+      table without a refetch.
+    - `delivery` says what mail we actually sent: `magic_link` for the
+      Keycloak invite email (new or unverified user), `app_email` for
+      our own `org_member_added` template (user already verified), or
+      `none` if the operator hasn't configured SMTP (we still create
+      the membership; the admin shares the password out-of-band).
+    """
+
+    member: OrgMemberOut
+    delivery: Literal["magic_link", "app_email", "none"]
+    was_new_user: bool
 
 
 # --- Team ---

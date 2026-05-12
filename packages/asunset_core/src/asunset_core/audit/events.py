@@ -29,6 +29,12 @@ class EventType(str, enum.Enum):
     ORG_MEMBER_ADDED = "org.member_added"
     ORG_MEMBER_REMOVED = "org.member_removed"
     ORG_MEMBER_ROLE_CHANGED = "org.member_role_changed"
+    # Invite lifecycle. ORG_MEMBER_INVITED is the "I just sent a magic
+    # link" event; ORG_MEMBER_ADDED still fires only when the user has
+    # accepted (verified email), so the two are not redundant.
+    ORG_MEMBER_INVITED = "org.member_invited"
+    ORG_INVITE_RESENT = "org.invite_resent"
+    ORG_INVITE_REVOKED = "org.invite_revoked"
     TEAM_CREATED = "team.created"
     TEAM_DELETED = "team.deleted"
     TEAM_MEMBER_ADDED = "team.member_added"

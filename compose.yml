@@ -122,6 +122,18 @@ services:
           -s "secret=$${KEYCLOAK_API_CLIENT_SECRET}"
         echo "keycloak-init: asunset-api secret synced from env"
 
+        # Ensure the asunset-api service account has manage-users on
+        # realm-management. Required for the invite flow (create user,
+        # send magic-link email). add-roles is idempotent — no error
+        # if the role is already assigned. Existing deployments
+        # imported before manage-users was in the realm export get it
+        # here on the next boot.
+        /opt/keycloak/bin/kcadm.sh add-roles -r "$${KEYCLOAK_REALM}" \
+          --uusername=service-account-asunset-api \
+          --cclientid=realm-management \
+          --rolename=manage-users 2>/dev/null || true
+        echo "keycloak-init: asunset-api service account has manage-users"
+
         # Realm-level HIPAA/NYDFS knobs: --import-realm uses
         # IGNORE_EXISTING on re-boots, so updates to realm-export.json
         # don't propagate into an already-imported realm. Push them via
