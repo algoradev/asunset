@@ -31,6 +31,7 @@ from asunset_core.auth.oidc import get_current_principal
 from asunset_core.auth.principal import Principal
 from asunset_core.db.models import MemberRole, OrgMember
 from asunset_core.db.session import get_session_factory
+from asunset_core.notifications import EmailService
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +112,21 @@ def get_authorizer(request: Request) -> Authorizer:
             status.HTTP_503_SERVICE_UNAVAILABLE, "authorizer not initialized"
         )
     return authz
+
+
+def get_email_service(request: Request) -> EmailService:
+    """App-scoped EmailService. Routes that send mail depend on this.
+
+    Backend is whatever NOTIFIER picked (log|resend) at startup. Don't
+    instantiate `EmailService` per request — the httpx client inside
+    `ResendNotifier` is meant to be reused.
+    """
+    svc: EmailService | None = getattr(request.app.state, "email_service", None)
+    if svc is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "email service not initialized"
+        )
+    return svc
 
 
 def _client_source_ip(request: Request) -> str | None:

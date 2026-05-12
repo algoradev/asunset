@@ -194,6 +194,60 @@ Declares the `product-api` service, wires it to Postgres/OpenFGA/Keycloak
 the same way asunset's demo api does. Routes under `/reports`, `/orgs`,
 `/teams`, `/audit`, etc.
 
+## Email
+
+Two independent layers, deliberately kept separate so each can be
+swapped or disabled without touching the other.
+
+### Keycloak SMTP (auth flows)
+
+Drives Keycloak's own emails — verify-email, forgot-password, the
+magic-link sent when `requiredActions=["UPDATE_PASSWORD"]` is set on
+an invited user. Configured at the realm level by `keycloak-init`
+from `KC_SMTP_*` env vars; leave `KC_SMTP_HOST` empty to disable
+Keycloak email entirely (the default for local dev).
+
+Resend example:
+
+```
+KC_SMTP_HOST=smtp.resend.com
+KC_SMTP_PORT=587
+KC_SMTP_USER=resend
+KC_SMTP_PASSWORD=<your Resend API key>
+KC_SMTP_FROM=noreply-auth@your-domain.com
+KC_SMTP_STARTTLS=true
+KC_SMTP_AUTH=true
+```
+
+### App-side notifier (product flows)
+
+A `Notifier` port in `asunset_core.notifications` with two adapters
+out of the box:
+
+- `LogNotifier` — logs every send to stdout, no network. Default
+  (`NOTIFIER_BACKEND=log`) so a fresh checkout never sends real mail.
+- `ResendNotifier` — posts to Resend's HTTP API. Activate with
+  `NOTIFIER_BACKEND=resend` + `RESEND_API_KEY=...`.
+
+Routes inject `EmailService` via FastAPI's `Depends(get_email_service)`
+and call `await email.send(template="welcome", locale=user.locale,
+to=user.email, context={...})`. The service composes rendering and
+delivery; you don't see the Notifier directly.
+
+Templates are Jinja2 trios — `<name>.subject.txt`, `<name>.html`,
+`<name>.txt` — under `templates/<locale>/`. Asunset ships `welcome`
+and `org_member_added` in `en` + `es`; the renderer falls back to
+`en` for any locale where a key is missing. To add your own
+templates, point `NOTIFIER_TEMPLATE_DIR` at a directory of overrides
+— it's searched *before* the bundled defaults, so you can replace a
+single template without copying the whole set.
+
+Sender identity is intentionally different from Keycloak's:
+`NOTIFIER_DEFAULT_SENDER=noreply@<your-domain>` for the app vs
+`KC_SMTP_FROM=noreply-auth@<your-domain>` for Keycloak. Operators
+running both providers through Resend should configure each as a
+distinct sending identity in Resend.
+
 ## What NOT to put in your product
 
 - **Don't reimplement JWT validation.** Import `get_current_principal`.

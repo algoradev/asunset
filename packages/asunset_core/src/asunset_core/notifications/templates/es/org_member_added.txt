@@ -1,0 +1,8 @@
+Te has unido a {{ org_name }}.
+
+{{ inviter_name }} te añadió a {{ org_name }} con el rol de {{ role }}.
+
+Abrir la aplicación: {{ app_url }}
+
+Puedes salir de la organización en cualquier momento desde la
+configuración de tu cuenta.

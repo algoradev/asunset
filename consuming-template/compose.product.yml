@@ -54,6 +54,12 @@ services:
       OPENFGA_API_KEY: ${OPENFGA_API_KEY}
       API_CORS_ORIGINS: ${API_CORS_ORIGINS}
       API_LOG_LEVEL: ${API_LOG_LEVEL:-info}
+      # Inherited from CoreSettings — same names as asunset's demo api.
+      NOTIFIER_BACKEND: ${NOTIFIER_BACKEND:-log}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      NOTIFIER_DEFAULT_SENDER: ${NOTIFIER_DEFAULT_SENDER:-noreply@asunset.local}
+      NOTIFIER_DEFAULT_LOCALE: ${NOTIFIER_DEFAULT_LOCALE:-en}
+      NOTIFIER_TEMPLATE_DIR: ${NOTIFIER_TEMPLATE_DIR:-}
     depends_on:
       postgres:
         condition: service_healthy

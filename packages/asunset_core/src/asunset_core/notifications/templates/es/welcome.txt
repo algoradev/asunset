@@ -1,0 +1,7 @@
+Bienvenido, {{ display_name }}.
+
+Te hemos añadido a {{ org_name }}.
+
+Abrir la aplicación: {{ app_url }}
+
+Si no esperabas este correo, puedes ignorarlo.

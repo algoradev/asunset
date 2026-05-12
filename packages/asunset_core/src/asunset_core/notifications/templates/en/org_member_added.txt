@@ -1,0 +1,7 @@
+You've joined {{ org_name }}.
+
+{{ inviter_name }} added you to {{ org_name }} as {{ role }}.
+
+Open the app: {{ app_url }}
+
+You can leave the organization at any time from your account settings.

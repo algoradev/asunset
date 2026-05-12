@@ -12,6 +12,7 @@ from asunset_api.fga.model import AUTHORIZATION_MODEL
 from asunset_core.fga.bootstrap import bootstrap_openfga
 from asunset_core.logging import configure_logging, get_logger
 from asunset_core.middleware.correlation import CorrelationIdMiddleware
+from asunset_core.notifications import make_email_service
 from asunset_api.routers import audit as audit_router
 from asunset_api.routers import notes as notes_router
 from asunset_api.routers import orgs as orgs_router
@@ -32,6 +33,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     fga_client = make_openfga_client(settings, store_id, model_id)
     app.state.authorizer = OpenFGAAuthorizer(fga_client, store_id, model_id)
     app.state.fga_client = fga_client  # kept so lifespan shutdown can close it
+
+    # Email service is app-scoped — one Notifier + Jinja2 env reused for
+    # the lifetime of the process. CoreSettings drives backend selection
+    # (NOTIFIER=log|resend) and the sender + template overrides.
+    app.state.email_service = make_email_service(settings)
 
     yield
 

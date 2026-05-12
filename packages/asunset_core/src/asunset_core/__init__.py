@@ -45,6 +45,17 @@ from asunset_core.fga.bootstrap import bootstrap_openfga
 from asunset_core.fga.model import PLATFORM_TYPES, build_model
 from asunset_core.logging import configure_logging, get_logger
 from asunset_core.middleware.correlation import CorrelationIdMiddleware
+from asunset_core.notifications import (
+    EmailMessage,
+    EmailService,
+    EmailTemplate,
+    LogNotifier,
+    Notifier,
+    RenderedEmail,
+    ResendNotifier,
+    make_email_service,
+    make_notifier,
+)
 
 __all__ = [
     # auth
@@ -88,4 +99,14 @@ __all__ = [
     "bootstrap_openfga",
     "PLATFORM_TYPES",
     "build_model",
+    # notifications
+    "Notifier",
+    "LogNotifier",
+    "ResendNotifier",
+    "EmailMessage",
+    "EmailTemplate",
+    "RenderedEmail",
+    "EmailService",
+    "make_notifier",
+    "make_email_service",
 ]

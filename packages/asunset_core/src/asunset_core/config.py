@@ -42,6 +42,30 @@ class CoreSettings(BaseSettings):
     openfga_store_name: str = "asunset"
     openfga_api_key: str
 
+    # App-side email notifier. `log` is the safe default; `resend`
+    # switches to real delivery and requires `resend_api_key`. Keep
+    # `log` as the default so a fresh checkout / CI run never sends
+    # mail accidentally.
+    notifier_backend: str = Field(
+        default="log",
+        description="`log` (dev, no network) or `resend` (HTTP API).",
+    )
+    resend_api_key: str = ""
+    notifier_default_sender: str = Field(
+        default="noreply@asunset.local",
+        description="`From:` header on every app-side email. Operator overrides per deploy.",
+    )
+    notifier_default_locale: str = "en"
+    notifier_template_dir: str = Field(
+        default="",
+        description=(
+            "Filesystem path to a directory of consumer-owned email templates. "
+            "Searched before the bundled asunset defaults, so a consumer can "
+            "override a single template without copying the whole set. Leave "
+            "empty to use only the bundled templates."
+        ),
+    )
+
     @property
     def keycloak_internal_base(self) -> str:
         """Internal base URL (no /realms/... suffix) — used for the admin API."""

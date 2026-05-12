@@ -158,11 +158,44 @@ services:
             -s 'requiredActions=["CONFIGURE_TOTP"]' 2>/dev/null || true
           echo "keycloak-init: TOTP required for $$U"
         done
+
+        # Realm SMTP. Drives Keycloak's own emails — verify-email,
+        # forgot-password, magic-link invites — which are *separate*
+        # from the app-side Notifier. Skip entirely if KC_SMTP_HOST is
+        # unset so local dev / CI never wires up real delivery by
+        # accident. Compatible with Resend SMTP (smtp.resend.com:587,
+        # user=resend, password=<api-key>, starttls=true).
+        if [ -n "$${KC_SMTP_HOST:-}" ]; then
+          /opt/keycloak/bin/kcadm.sh update "realms/$${KEYCLOAK_REALM}" \
+            -s "smtpServer.host=$${KC_SMTP_HOST}" \
+            -s "smtpServer.port=$${KC_SMTP_PORT:-587}" \
+            -s "smtpServer.from=$${KC_SMTP_FROM}" \
+            -s "smtpServer.fromDisplayName=$${KC_SMTP_FROM_DISPLAY_NAME:-}" \
+            -s "smtpServer.replyTo=$${KC_SMTP_REPLY_TO:-}" \
+            -s "smtpServer.ssl=$${KC_SMTP_SSL:-false}" \
+            -s "smtpServer.starttls=$${KC_SMTP_STARTTLS:-true}" \
+            -s "smtpServer.auth=$${KC_SMTP_AUTH:-true}" \
+            -s "smtpServer.user=$${KC_SMTP_USER:-}" \
+            -s "smtpServer.password=$${KC_SMTP_PASSWORD:-}"
+          echo "keycloak-init: realm SMTP configured ($${KC_SMTP_HOST})"
+        else
+          echo "keycloak-init: KC_SMTP_HOST unset — skipping realm SMTP (Keycloak emails disabled)"
+        fi
     environment:
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM}
       KEYCLOAK_API_CLIENT_SECRET: ${KEYCLOAK_API_CLIENT_SECRET}
+      KC_SMTP_HOST: ${KC_SMTP_HOST:-}
+      KC_SMTP_PORT: ${KC_SMTP_PORT:-}
+      KC_SMTP_USER: ${KC_SMTP_USER:-}
+      KC_SMTP_PASSWORD: ${KC_SMTP_PASSWORD:-}
+      KC_SMTP_FROM: ${KC_SMTP_FROM:-}
+      KC_SMTP_FROM_DISPLAY_NAME: ${KC_SMTP_FROM_DISPLAY_NAME:-}
+      KC_SMTP_REPLY_TO: ${KC_SMTP_REPLY_TO:-}
+      KC_SMTP_SSL: ${KC_SMTP_SSL:-false}
+      KC_SMTP_STARTTLS: ${KC_SMTP_STARTTLS:-true}
+      KC_SMTP_AUTH: ${KC_SMTP_AUTH:-true}
     depends_on:
       keycloak:
         condition: service_healthy
@@ -251,6 +284,14 @@ services:
       OPENFGA_API_KEY: ${OPENFGA_API_KEY}
       API_CORS_ORIGINS: ${API_CORS_ORIGINS}
       API_LOG_LEVEL: ${API_LOG_LEVEL}
+      # App-side email notifier. `log` is the safe default — nothing
+      # leaves the box. Flip to `resend` and set RESEND_API_KEY for
+      # real delivery; the rest of the stack stays unchanged.
+      NOTIFIER_BACKEND: ${NOTIFIER_BACKEND:-log}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      NOTIFIER_DEFAULT_SENDER: ${NOTIFIER_DEFAULT_SENDER:-noreply@asunset.local}
+      NOTIFIER_DEFAULT_LOCALE: ${NOTIFIER_DEFAULT_LOCALE:-en}
+      NOTIFIER_TEMPLATE_DIR: ${NOTIFIER_TEMPLATE_DIR:-}
     depends_on:
       postgres:
         condition: service_healthy
