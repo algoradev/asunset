@@ -183,10 +183,23 @@ Uses the same dependency injection pattern as asunset:
 
 ### 4. Your Alembic (`alembic/versions/`)
 
-First migration's `down_revision` points to asunset's last migration
-(`"0004"` at the time of writing). Your migration only creates YOUR
-tables. Run `alembic upgrade head` and both platform + product tables
-materialize in order.
+Your first migration should anchor to asunset's platform head via the
+`platform_head()` helper:
+
+```python
+from asunset_core.alembic_helpers import platform_head
+
+revision: str = "1000"
+down_revision: str | None = platform_head()
+```
+
+This way every `git subtree pull` of `vendor/asunset/` automatically
+picks up whatever the new platform head is — you don't bump a literal
+revision id by hand, and you can't silently chain to a stale revision
+(which produces an opaque "Multiple head revisions are present" error
+on the next deploy). Your migration only creates YOUR tables. Run
+`alembic upgrade head` and both platform + product tables materialize
+in order. The example migration in this scaffold uses the helper.
 
 ### 5. Your compose overlay (`compose.product.yml`)
 

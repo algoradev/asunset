@@ -1,16 +1,20 @@
 """product: report table
 
 Revision ID: 1000
-Revises: 0004
+Revises: (asunset platform head — see platform_head())
 Create Date: 2026-04-18
 
-First product migration. `down_revision = "0004"` chains it after
-asunset's last platform migration (source: vendor/asunset/apps/api/
-alembic/versions/). Running `alembic upgrade head` materializes both
+First product migration. `down_revision = platform_head()` chains it
+after asunset's last platform migration at the time the vendored
+subtree was pulled. Running `alembic upgrade head` materializes both
 platform + product tables in order.
 
-Bump `down_revision` when you pull a newer asunset that added migrations
-beyond 0004.
+`platform_head()` resolves at import time — every `git subtree pull`
+of `vendor/asunset/` automatically picks up whatever the new platform
+head is, no manual bump needed. (Before this helper existed, consumers
+had to remember to update a literal `"0004"` whenever asunset added a
+migration, and the failure mode was a hard-to-diagnose "Multiple head
+revisions are present" error on the next deploy.)
 """
 
 from __future__ import annotations
@@ -19,10 +23,11 @@ import os
 
 import sqlalchemy as sa
 from alembic import op
+from asunset_core.alembic_helpers import platform_head
 from sqlalchemy.dialects import postgresql
 
 revision: str = "1000"
-down_revision: str | None = "0004"
+down_revision: str | None = platform_head()
 branch_labels = None
 depends_on = None
 
