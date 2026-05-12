@@ -49,10 +49,14 @@ class OrgMemberOut(BaseModel):
     user: UserOut
     role: MemberRole
     joined_at: datetime
-    # True when the recipient hasn't accepted their magic-link invite yet
-    # (Keycloak `emailVerified=false`). Only populated for org admins —
-    # regular members see `False` regardless. Drives the "Pending" badge
-    # in the members table and unlocks the resend/revoke kebab actions.
+    # True when the recipient hasn't finished the credential bootstrap
+    # — i.e. their Keycloak user still has UPDATE_PASSWORD or
+    # VERIFY_EMAIL queued in requiredActions (see _is_pending in
+    # routers/orgs.py). Other required-actions like CONFIGURE_TOTP are
+    # deliberately excluded so the badge stays scoped to invite
+    # acceptance rather than ongoing operational gates. Only populated
+    # for org admins — regular members see `False` regardless. Drives
+    # the "Pending" badge and unlocks the resend/revoke kebab actions.
     pending: bool = False
 
 

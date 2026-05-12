@@ -57,6 +57,38 @@ log = get_logger(__name__)
 INVITE_CLIENT_ID = "asunset-web"
 INVITE_LINK_LIFESPAN_SECONDS = 7 * 24 * 60 * 60  # 7 days
 
+# Required-actions that mean "the recipient hasn't finished accepting
+# their invite." Other Keycloak required-actions exist (CONFIGURE_TOTP
+# is the one keycloak-init adds for platform_admin holders, per the
+# HIPAA loop) but those are operational gates, not invite acceptance —
+# we deliberately do NOT count them as "pending" so the badge keeps
+# its single, precise meaning. If we ever want MFA-enrollment
+# visibility, that's a separate signal.
+BOOTSTRAP_ACTIONS = frozenset({"UPDATE_PASSWORD", "VERIFY_EMAIL"})
+
+
+def _is_pending(kc_user: dict | None) -> bool:
+    """True iff the recipient hasn't finished the credential bootstrap.
+
+    Proxy is "any BOOTSTRAP_ACTIONS still queued in the Keycloak user's
+    requiredActions list." Works for both invite modes:
+
+    - magic_link: clicking the link clears UPDATE_PASSWORD (and
+      VERIFY_EMAIL) → empty intersection → not pending.
+    - temp_password: setting a new password clears UPDATE_PASSWORD →
+      empty intersection → not pending.
+
+    The previous proxy (emailVerified=False) only happened to flip in
+    the magic_link flow because the link itself sets emailVerified as
+    a side effect; in temp_password mode it never flips at all,
+    leaving fully-onboarded users stuck Pending forever (centum-flagged
+    2026-05-12). requiredActions is the honest source.
+    """
+    if not isinstance(kc_user, dict):
+        return False
+    return bool(BOOTSTRAP_ACTIONS & set(kc_user.get("requiredActions") or []))
+
+
 async def _bootstrap_credential(
     settings: Settings,
     *,
@@ -216,10 +248,8 @@ async def list_members(
         )
         for (_, u), kc in zip(rows, kc_users):
             # If Keycloak is unreachable for one member, fail open
-            # (pending=False) rather than blocking the whole list.
-            pending_map[u.id] = bool(
-                isinstance(kc, dict) and not kc.get("emailVerified", False)
-            )
+            # (pending=False — _is_pending guards against non-dicts).
+            pending_map[u.id] = _is_pending(kc if isinstance(kc, dict) else None)
 
     return [
         OrgMemberOut(
@@ -506,7 +536,7 @@ async def invite_member(
 
     display_name = _display_from_kc(kc_user, email_input)
     canonical_email = (kc_user.get("email") if kc_user else None) or email_input
-    email_verified = bool(kc_user and kc_user.get("emailVerified"))
+    is_pending = _is_pending(kc_user)
 
     # Welcome context — identical inputs feed every downstream mail
     # (welcome_temp_password for unverified users, org_member_added for
@@ -557,7 +587,7 @@ async def invite_member(
                 status.HTTP_409_CONFLICT,
                 "already a member with a different role — use PATCH to change role",
             )
-        if email_verified:
+        if not is_pending:
             raise HTTPException(
                 status.HTTP_409_CONFLICT, "already a member of this org"
             )
@@ -630,8 +660,8 @@ async def invite_member(
 
     delivery: str
     temp_password: str | None = None
-    if email_verified:
-        # Existing verified user — use our own notifier.
+    if not is_pending:
+        # Existing fully-onboarded user — use our own notifier.
         try:
             await email_service.send(
                 template="org_member_added",
@@ -717,7 +747,7 @@ async def invite_member(
             ),
             role=member.role,
             joined_at=member.joined_at,
-            pending=not email_verified,
+            pending=is_pending,
         ),
         delivery=delivery,  # type: ignore[arg-type]
         was_new_user=was_new_user,
@@ -763,7 +793,7 @@ async def resend_invite(
             status.HTTP_409_CONFLICT,
             "user not found in Keycloak — revoke this membership instead",
         )
-    if kc_user.get("emailVerified"):
+    if not _is_pending(kc_user):
         raise HTTPException(
             status.HTTP_409_CONFLICT, "user has already accepted — nothing to resend"
         )
@@ -851,7 +881,7 @@ async def revoke_invite(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not a member")
 
     kc_user = await get_user(settings, str(user_id))
-    if kc_user and kc_user.get("emailVerified"):
+    if kc_user is not None and not _is_pending(kc_user):
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             "user has already accepted — use DELETE /members/{user_id} to remove",
