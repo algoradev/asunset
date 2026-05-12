@@ -25,6 +25,7 @@ from asunset_core.auth.keycloak_admin import (
 from asunset_core.auth.oidc import get_current_principal
 from asunset_core.auth.principal import Principal
 from asunset_core.db.models import AppUser, MemberRole, Organization, OrgMember, TeamMember
+from asunset_core.logging import get_logger
 from asunset_core.notifications import EmailService
 from asunset_api.config import Settings, get_settings
 from asunset_api.routers.deps import (
@@ -47,6 +48,8 @@ from asunset_api.routers.schemas import (
     UserOut,
 )
 
+log = get_logger(__name__)
+
 # Keycloak's web client — `executeActionsEmail` uses it to resolve the
 # post-set-password redirect, which `keycloak-init` has already pinned
 # per deployment mode (tailnet host / TLS host / dev). So the magic
@@ -58,6 +61,8 @@ async def _bootstrap_credential(
     settings: Settings,
     *,
     user_id: UUID,
+    welcome: dict | None = None,
+    email_service: EmailService | None = None,
 ) -> tuple[str, str | None]:
     """Set up the new user's first-login credential per `INVITE_DELIVERY`.
 
@@ -68,8 +73,17 @@ async def _bootstrap_credential(
                     `("none", None)` — membership stands, operator
                     resets manually in Keycloak.
     `temp_password` Generate + set a one-time password. Return it.
+                    When `welcome` + `email_service` are provided, also
+                    send a `welcome_temp_password` mail to the recipient
+                    (admin still gets the password back as a backup
+                    in case the mail bounces). Mail failure does NOT
+                    fail the invite.
     `auto`          Try magic_link first; on KeycloakAdminError fall
-                    back to temp_password.
+                    back to temp_password (and same welcome behavior).
+
+    `welcome` shape: `{email, org_name, role, inviter_name}`. The
+    login URL is derived here from `settings.keycloak_issuer` so callers
+    don't have to repeat the expression.
     """
     mode = (settings.invite_delivery or "magic_link").lower()
     if mode not in {"magic_link", "temp_password", "auto"}:
@@ -78,12 +92,37 @@ async def _bootstrap_credential(
             f"INVITE_DELIVERY={settings.invite_delivery!r} is not a valid mode",
         )
 
-    if mode == "temp_password":
+    async def _temp_password_path() -> tuple[str, str | None]:
         password = generate_temporary_password()
         await set_temporary_password(
             settings, user_id=str(user_id), password=password
         )
+        if welcome and email_service is not None:
+            try:
+                await email_service.send(
+                    template="welcome_temp_password",
+                    to=welcome["email"],
+                    context={
+                        "org_name": welcome["org_name"],
+                        "role": welcome["role"],
+                        "inviter_name": welcome["inviter_name"],
+                        "email": welcome["email"],
+                        "temp_password": password,
+                        "login_url": settings.keycloak_issuer.rsplit("/realms", 1)[0],
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001
+                # Welcome mail is a UX nicety on top of a successful
+                # password reset. Admin still has the password in the
+                # response and can hand it over via side-channel.
+                log.warning(
+                    "invite.welcome_temp_password.send_failed",
+                    extra={"user_id": str(user_id), "error": str(exc)[:200]},
+                )
         return "temporary_password", password
+
+    if mode == "temp_password":
+        return await _temp_password_path()
 
     # magic_link or auto — try the email first.
     try:
@@ -97,11 +136,7 @@ async def _bootstrap_credential(
         return "magic_link", None
     except KeycloakAdminError:
         if mode == "auto":
-            password = generate_temporary_password()
-            await set_temporary_password(
-                settings, user_id=str(user_id), password=password
-            )
-            return "temporary_password", password
+            return await _temp_password_path()
         # magic_link mode with no fallback — membership stands, but the
         # operator needs to bootstrap the credential another way.
         return "none", None
@@ -473,6 +508,24 @@ async def invite_member(
     canonical_email = (kc_user.get("email") if kc_user else None) or email_input
     email_verified = bool(kc_user and kc_user.get("emailVerified"))
 
+    # Welcome context — identical inputs feed every downstream mail
+    # (welcome_temp_password for unverified users, org_member_added for
+    # verified ones). Loaded once here so the existing-pending retry
+    # branch below + the new-user branch below + the verified branch
+    # below all see the same labels.
+    org_row = (
+        await session.execute(
+            select(Organization).where(Organization.id == org.org_id)
+        )
+    ).scalar_one()
+    inviter_name = principal.display_name or principal.email or "an admin"
+    welcome = {
+        "email": canonical_email,
+        "org_name": org_row.name,
+        "role": body.role.value,
+        "inviter_name": inviter_name,
+    }
+
     # Idempotency model — three reasons the same email can be re-POSTed:
     #
     # (a) Real duplicate: the user is already a verified, active member of
@@ -511,7 +564,10 @@ async def invite_member(
         # Pending member, same role — treat as resend.
         try:
             delivery, temp_password = await _bootstrap_credential(
-                settings, user_id=user_id
+                settings,
+                user_id=user_id,
+                welcome=welcome,
+                email_service=email_service,
             )
         except KeycloakAdminError as exc:
             raise HTTPException(
@@ -576,20 +632,14 @@ async def invite_member(
     temp_password: str | None = None
     if email_verified:
         # Existing verified user — use our own notifier.
-        org_row = (
-            await session.execute(
-                select(Organization).where(Organization.id == org.org_id)
-            )
-        ).scalar_one()
-        inviter_name = principal.display_name or principal.email or "an admin"
         try:
             await email_service.send(
                 template="org_member_added",
                 to=canonical_email,
                 context={
-                    "org_name": org_row.name,
-                    "role": body.role.value,
-                    "inviter_name": inviter_name,
+                    "org_name": welcome["org_name"],
+                    "role": welcome["role"],
+                    "inviter_name": welcome["inviter_name"],
                     "app_url": settings.keycloak_issuer.rsplit("/realms", 1)[0],
                 },
             )
@@ -631,10 +681,15 @@ async def invite_member(
     else:
         # New user or existing-unverified — bootstrap a credential per
         # INVITE_DELIVERY (magic_link / temp_password / auto). See
-        # `_bootstrap_credential` for the per-mode behavior.
+        # `_bootstrap_credential` for the per-mode behavior. The welcome
+        # mail is sent inside _bootstrap_credential whenever delivery
+        # resolves to temp_password.
         try:
             delivery, temp_password = await _bootstrap_credential(
-                settings, user_id=user_id
+                settings,
+                user_id=user_id,
+                welcome=welcome,
+                email_service=email_service,
             )
         except KeycloakAdminError as exc:
             raise HTTPException(
@@ -680,13 +735,16 @@ async def resend_invite(
     org: OrgContext = Depends(require_org_admin),
     audit: AuditSink = Depends(get_audit_sink),
     settings: Settings = Depends(get_settings),
+    email_service: EmailService = Depends(get_email_service),
+    principal: Principal = Depends(get_current_principal),
 ) -> OrgInviteResendOut:
     """Re-bootstrap a credential for a user who hasn't accepted yet.
 
     Same per-mode behavior as create-invite: `magic_link` resends the
     Keycloak email, `temp_password` generates a fresh password and
     returns it (the previous one becomes invalid because reset
-    overwrites it), `auto` tries email then falls back.
+    overwrites it), `auto` tries email then falls back. In any
+    temp_password outcome the recipient also gets the welcome mail.
     """
     member = (
         await session.execute(
@@ -710,18 +768,37 @@ async def resend_invite(
             status.HTTP_409_CONFLICT, "user has already accepted — nothing to resend"
         )
 
+    user_row = (
+        await session.execute(select(AppUser).where(AppUser.id == user_id))
+    ).scalar_one_or_none()
+    user_email = user_row.email if user_row else None
+    org_row = (
+        await session.execute(
+            select(Organization).where(Organization.id == org.org_id)
+        )
+    ).scalar_one()
+    welcome = (
+        {
+            "email": user_email,
+            "org_name": org_row.name,
+            "role": member.role.value,
+            "inviter_name": principal.display_name or principal.email or "an admin",
+        }
+        if user_email
+        else None
+    )
+
     try:
         delivery, temp_password = await _bootstrap_credential(
-            settings, user_id=user_id
+            settings,
+            user_id=user_id,
+            welcome=welcome,
+            email_service=email_service,
         )
     except KeycloakAdminError as exc:
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY, f"keycloak: {exc}"
         ) from exc
-
-    user_email = (
-        await session.execute(select(AppUser.email).where(AppUser.id == user_id))
-    ).scalar_one_or_none()
 
     await audit.emit(
         EventType.ORG_INVITE_RESENT,
