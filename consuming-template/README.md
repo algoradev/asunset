@@ -232,6 +232,34 @@ KC_SMTP_STARTTLS=true
 KC_SMTP_AUTH=true
 ```
 
+### Onboarding without SMTP (Linode et al.)
+
+Some hosts (Linode, Hetzner Cloud, AWS without verified SES) block
+outbound SMTP entirely. Keycloak's magic-link invite path is a
+non-starter on those hosts. Set:
+
+```
+INVITE_DELIVERY=temp_password
+```
+
+The invite endpoint then generates a strong one-time password, sets
+it on the new Keycloak user with `temporary=true`, and returns it in
+the API response. The admin sees it in a one-time copyable callout
+in the Invite dialog, conveys it out-of-band (Signal, in person,
+secure chat), and the new user signs in once — Keycloak immediately
+forces them to set their own password, then redirects them into the
+app already a member.
+
+`INVITE_DELIVERY=auto` tries the magic-link path first and falls back
+to a temp password if Keycloak's email errors. Useful on hosts where
+SMTP "should" work but you want resilience against transient outages.
+
+`INVITE_DELIVERY=magic_link` is the default and matches the original
+behavior — requires `KC_SMTP_HOST` and a reachable SMTP gateway.
+
+The mode is read from env at request time, so swapping it doesn't
+require a rebuild — just `asunset restart api` after editing `.env`.
+
 ### App-side notifier (product flows)
 
 A `Notifier` port in `asunset_core.notifications` with two adapters

@@ -73,22 +73,46 @@ class OrgInviteIn(BaseModel):
     role: MemberRole = MemberRole.member
 
 
-class OrgInviteOut(BaseModel):
-    """Result of an invite call. Semantics:
+InviteDelivery = Literal[
+    "magic_link",
+    "app_email",
+    "temporary_password",
+    "none",
+]
 
-    - `member` is the (now-existing) org_member row, same shape as any
-      other listing — caller can splice it straight into a members
-      table without a refetch.
-    - `delivery` says what mail we actually sent: `magic_link` for the
-      Keycloak invite email (new or unverified user), `app_email` for
-      our own `org_member_added` template (user already verified), or
-      `none` if the operator hasn't configured SMTP (we still create
-      the membership; the admin shares the password out-of-band).
+
+class OrgInviteOut(BaseModel):
+    """Result of an invite call. Semantics of `delivery`:
+
+    - `magic_link`         Keycloak emailed a one-time link.
+    - `app_email`          User already exists + verified — sent the
+                           `org_member_added` template via the
+                           app-side notifier (no password set).
+    - `temporary_password` Backend generated a temp password and set
+                           it on the new KC user; admin conveys it
+                           out-of-band. `temporary_password` is
+                           populated. Returned exactly once.
+    - `none`               Membership created but no credential
+                           bootstrapped — operator must reset the
+                           password manually in Keycloak. Surfaced
+                           when delivery was attempted and failed.
     """
 
     member: OrgMemberOut
-    delivery: Literal["magic_link", "app_email", "none"]
+    delivery: InviteDelivery
     was_new_user: bool
+    # Populated only when delivery == "temporary_password". Returned
+    # once; never logged. Frontend shows it in a one-time copy callout.
+    temporary_password: str | None = None
+
+
+class OrgInviteResendOut(BaseModel):
+    """Result of a resend call. Same delivery semantics as
+    OrgInviteOut, minus `app_email` / `was_new_user` (resend only
+    applies to pending users)."""
+
+    delivery: Literal["magic_link", "temporary_password", "none"]
+    temporary_password: str | None = None
 
 
 # --- Team ---

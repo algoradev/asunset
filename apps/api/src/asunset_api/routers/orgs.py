@@ -17,8 +17,10 @@ from asunset_core.auth.keycloak_admin import (
     KeycloakAdminError,
     create_user,
     find_user_by_email,
+    generate_temporary_password,
     get_user,
     send_actions_email,
+    set_temporary_password,
 )
 from asunset_core.auth.oidc import get_current_principal
 from asunset_core.auth.principal import Principal
@@ -38,6 +40,7 @@ from asunset_api.routers.schemas import (
     MemberRoleUpdateIn,
     OrgInviteIn,
     OrgInviteOut,
+    OrgInviteResendOut,
     OrgMemberAddIn,
     OrgMemberOut,
     OrgOut,
@@ -50,6 +53,58 @@ from asunset_api.routers.schemas import (
 # link works without us caring about hostnames.
 INVITE_CLIENT_ID = "asunset-web"
 INVITE_LINK_LIFESPAN_SECONDS = 7 * 24 * 60 * 60  # 7 days
+
+async def _bootstrap_credential(
+    settings: Settings,
+    *,
+    user_id: UUID,
+) -> tuple[str, str | None]:
+    """Set up the new user's first-login credential per `INVITE_DELIVERY`.
+
+    Returns `(delivery, temporary_password)` — `temporary_password`
+    is set only when `delivery == "temporary_password"`.
+
+    `magic_link`    Try executeActionsEmail. On failure, log + return
+                    `("none", None)` — membership stands, operator
+                    resets manually in Keycloak.
+    `temp_password` Generate + set a one-time password. Return it.
+    `auto`          Try magic_link first; on KeycloakAdminError fall
+                    back to temp_password.
+    """
+    mode = (settings.invite_delivery or "magic_link").lower()
+    if mode not in {"magic_link", "temp_password", "auto"}:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            f"INVITE_DELIVERY={settings.invite_delivery!r} is not a valid mode",
+        )
+
+    if mode == "temp_password":
+        password = generate_temporary_password()
+        await set_temporary_password(
+            settings, user_id=str(user_id), password=password
+        )
+        return "temporary_password", password
+
+    # magic_link or auto — try the email first.
+    try:
+        await send_actions_email(
+            settings,
+            user_id=str(user_id),
+            actions=["UPDATE_PASSWORD"],
+            client_id=INVITE_CLIENT_ID,
+            lifespan_seconds=INVITE_LINK_LIFESPAN_SECONDS,
+        )
+        return "magic_link", None
+    except KeycloakAdminError:
+        if mode == "auto":
+            password = generate_temporary_password()
+            await set_temporary_password(
+                settings, user_id=str(user_id), password=password
+            )
+            return "temporary_password", password
+        # magic_link mode with no fallback — membership stands, but the
+        # operator needs to bootstrap the credential another way.
+        return "none", None
 
 router = APIRouter(prefix="/orgs", tags=["orgs"])
 
@@ -465,6 +520,7 @@ async def invite_member(
 
     email_verified = bool(kc_user and kc_user.get("emailVerified"))
     delivery: str
+    temp_password: str | None = None
     if email_verified:
         # Existing verified user — use our own notifier.
         org_row = (
@@ -520,21 +576,17 @@ async def invite_member(
                 was_new_user=was_new_user,
             )
     else:
-        # New user or existing-unverified — Keycloak magic link.
+        # New user or existing-unverified — bootstrap a credential per
+        # INVITE_DELIVERY (magic_link / temp_password / auto). See
+        # `_bootstrap_credential` for the per-mode behavior.
         try:
-            await send_actions_email(
-                settings,
-                user_id=str(user_id),
-                actions=["UPDATE_PASSWORD"],
-                client_id=INVITE_CLIENT_ID,
-                lifespan_seconds=INVITE_LINK_LIFESPAN_SECONDS,
+            delivery, temp_password = await _bootstrap_credential(
+                settings, user_id=user_id
             )
-            delivery = "magic_link"
-        except KeycloakAdminError:
-            # Most likely: realm SMTP not configured. Keep the
-            # membership; let the admin distribute the password
-            # out-of-band. Matches centum's pre-SMTP runbook.
-            delivery = "none"
+        except KeycloakAdminError as exc:
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY, f"keycloak: {exc}"
+            ) from exc
 
     await audit.emit(
         EventType.ORG_MEMBER_INVITED,
@@ -561,12 +613,13 @@ async def invite_member(
         ),
         delivery=delivery,  # type: ignore[arg-type]
         was_new_user=was_new_user,
+        temporary_password=temp_password,
     )
 
 
 @router.post(
     "/current/invites/{user_id}/resend",
-    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=OrgInviteResendOut,
 )
 async def resend_invite(
     user_id: UUID,
@@ -574,8 +627,14 @@ async def resend_invite(
     org: OrgContext = Depends(require_org_admin),
     audit: AuditSink = Depends(get_audit_sink),
     settings: Settings = Depends(get_settings),
-) -> None:
-    """Re-trigger the magic-link email for a user who hasn't accepted yet."""
+) -> OrgInviteResendOut:
+    """Re-bootstrap a credential for a user who hasn't accepted yet.
+
+    Same per-mode behavior as create-invite: `magic_link` resends the
+    Keycloak email, `temp_password` generates a fresh password and
+    returns it (the previous one becomes invalid because reset
+    overwrites it), `auto` tries email then falls back.
+    """
     member = (
         await session.execute(
             select(OrgMember).where(
@@ -599,12 +658,8 @@ async def resend_invite(
         )
 
     try:
-        await send_actions_email(
-            settings,
-            user_id=str(user_id),
-            actions=["UPDATE_PASSWORD"],
-            client_id=INVITE_CLIENT_ID,
-            lifespan_seconds=INVITE_LINK_LIFESPAN_SECONDS,
+        delivery, temp_password = await _bootstrap_credential(
+            settings, user_id=user_id
         )
     except KeycloakAdminError as exc:
         raise HTTPException(
@@ -622,7 +677,12 @@ async def resend_invite(
         resource_id=user_id,
         resource_label=user_email,
         permission="org_admin",
-        payload={},
+        payload={"delivery": delivery},
+    )
+
+    return OrgInviteResendOut(
+        delivery=delivery,  # type: ignore[arg-type]
+        temporary_password=temp_password,
     )
 
 

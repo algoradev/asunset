@@ -20,8 +20,10 @@ from asunset_core.auth.keycloak_admin import (
     UserAlreadyExistsError,
     create_user,
     find_user_by_email,
+    generate_temporary_password,
     get_user,
     send_actions_email,
+    set_temporary_password,
 )
 
 
@@ -246,6 +248,48 @@ async def test_send_actions_email_puts_with_correct_query(restore_httpx) -> None
     }
 
 
+# --- set_temporary_password -----------------------------------------
+
+
+async def test_set_temporary_password_puts_with_temporary_true(restore_httpx) -> None:
+    captured: dict = {}
+
+    def dispatch(req: httpx.Request) -> httpx.Response:
+        captured["method"] = req.method
+        captured["path"] = req.url.path
+        captured["body"] = json.loads(req.content.decode())
+        captured["auth"] = req.headers["authorization"]
+        return httpx.Response(204)
+
+    make = _token_handler([])
+    _install_transport(make(dispatch))
+
+    await set_temporary_password(
+        _Settings(),
+        user_id="u-77",
+        password="StrongPass-1234!",
+    )
+    assert captured == {
+        "method": "PUT",
+        "path": f"/auth/admin/realms/{REALM}/users/u-77/reset-password",
+        "body": {"type": "password", "value": "StrongPass-1234!", "temporary": True},
+        "auth": "Bearer kc-token",
+    }
+
+
+async def test_set_temporary_password_raises_on_4xx(restore_httpx) -> None:
+    make = _token_handler([])
+    _install_transport(
+        make(lambda req: httpx.Response(400, text="policy violation"))
+    )
+    with pytest.raises(KeycloakAdminError):
+        await set_temporary_password(
+            _Settings(),
+            user_id="u-1",
+            password="weak",
+        )
+
+
 async def test_send_actions_email_raises_on_5xx(restore_httpx) -> None:
     make = _token_handler([])
     _install_transport(
@@ -258,6 +302,35 @@ async def test_send_actions_email_raises_on_5xx(restore_httpx) -> None:
             actions=["UPDATE_PASSWORD"],
             client_id="asunset-web",
         )
+
+
+# --- generate_temporary_password ------------------------------------
+
+
+def test_generate_temp_password_meets_realm_policy() -> None:
+    """The realm requires min 12 + lower + upper + digit + special.
+    Run a sample so we'd catch any class-omission regression."""
+    specials = "!@#$%^&*-_"
+    for _ in range(200):
+        pw = generate_temporary_password()
+        assert len(pw) == 16
+        assert any(c.islower() for c in pw), pw
+        assert any(c.isupper() for c in pw), pw
+        assert any(c.isdigit() for c in pw), pw
+        assert any(c in specials for c in pw), pw
+
+
+def test_generate_temp_password_respects_length_floor() -> None:
+    with pytest.raises(ValueError):
+        generate_temporary_password(length=8)
+
+
+def test_generate_temp_passwords_are_unique() -> None:
+    seen: set[str] = set()
+    for _ in range(50):
+        pw = generate_temporary_password()
+        assert pw not in seen
+        seen.add(pw)
 
 
 # --- token cache -----------------------------------------------------

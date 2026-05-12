@@ -14,6 +14,8 @@ own admin console or a SCIM provisioner.
 
 from __future__ import annotations
 
+import secrets
+import string
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -179,6 +181,79 @@ async def create_user(
             )
         user_id = existing["id"]
     return user_id
+
+
+_TEMP_PW_SPECIALS = "!@#$%^&*-_"
+
+
+def generate_temporary_password(length: int = 16) -> str:
+    """Generate a CSPRNG-backed one-time password meeting asunset's
+    realm policy (min 12 chars, lower + upper + digit + special).
+
+    Seeds one of each required class, pads with mixed alphanum, then
+    shuffles via `secrets.SystemRandom` so class positions aren't
+    predictable. Length defaults to 16 — comfortably above the
+    realm's min-12 — and the realm policy is the floor we validate
+    against, so larger lengths are always safe.
+
+    Used by the invite flow's `temp_password` delivery mode and by
+    operator-side scripts that need a one-time credential for a
+    user. Pair with `set_temporary_password` to install it.
+    """
+    if length < 12:
+        raise ValueError(
+            "temp password length must be >= 12 to satisfy the realm policy"
+        )
+    seeded = [
+        secrets.choice(string.ascii_lowercase),
+        secrets.choice(string.ascii_uppercase),
+        secrets.choice(string.digits),
+        secrets.choice(_TEMP_PW_SPECIALS),
+    ]
+    pool = string.ascii_letters + string.digits
+    seeded.extend(secrets.choice(pool) for _ in range(length - len(seeded)))
+    secrets.SystemRandom().shuffle(seeded)
+    return "".join(seeded)
+
+
+async def set_temporary_password(
+    settings: Settings,
+    *,
+    user_id: str,
+    password: str,
+) -> None:
+    """Set a one-time password on a Keycloak user.
+
+    `temporary=true` makes Keycloak add `UPDATE_PASSWORD` to the user's
+    requiredActions automatically — they can sign in once with this
+    value and Keycloak will then force them to set their own. Used by
+    the invite flow's `temp_password` delivery mode for deployments
+    where outbound SMTP is blocked (Linode, etc.) and the magic-link
+    path isn't viable. The admin conveys the password out-of-band.
+
+    Caller is responsible for generating a password that meets the
+    realm's password policy. See the generator alongside the invite
+    endpoint.
+    """
+    token = await _get_service_token(settings)
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.put(
+            f"{_users_base(settings)}/{user_id}/reset-password",
+            json={"type": "password", "value": password, "temporary": True},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        if resp.status_code >= 400:
+            log.error(
+                "keycloak.set_temporary_password_failed",
+                status=resp.status_code,
+                # Redact the body — Keycloak echoes the password back on
+                # some validation failures, which we never want in logs.
+                body_status=resp.status_code,
+                user_id=user_id,
+            )
+            raise KeycloakAdminError(
+                f"set_temporary_password returned {resp.status_code}"
+            )
 
 
 async def send_actions_email(

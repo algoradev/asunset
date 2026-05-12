@@ -304,6 +304,10 @@ services:
       NOTIFIER_DEFAULT_SENDER: ${NOTIFIER_DEFAULT_SENDER:-noreply@asunset.local}
       NOTIFIER_DEFAULT_LOCALE: ${NOTIFIER_DEFAULT_LOCALE:-en}
       NOTIFIER_TEMPLATE_DIR: ${NOTIFIER_TEMPLATE_DIR:-}
+      # How org invites bootstrap new-user credentials. Default magic_link
+      # uses Keycloak SMTP. Set to temp_password where outbound SMTP is
+      # blocked (Linode etc.); see .env.example for the full mode list.
+      INVITE_DELIVERY: ${INVITE_DELIVERY:-magic_link}
     depends_on:
       postgres:
         condition: service_healthy

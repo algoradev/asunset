@@ -26,8 +26,10 @@ from asunset_core.auth.keycloak_admin import (
     UserAlreadyExistsError,
     create_user,
     find_user_by_email,
+    generate_temporary_password,
     get_user,
     send_actions_email,
+    set_temporary_password,
 )
 from asunset_core.auth.oidc import get_current_principal, require_platform_admin
 from asunset_core.auth.principal import Principal
@@ -74,6 +76,8 @@ __all__ = [
     "get_user",
     "create_user",
     "send_actions_email",
+    "set_temporary_password",
+    "generate_temporary_password",
     "KeycloakAdminError",
     "UserAlreadyExistsError",
     # authz

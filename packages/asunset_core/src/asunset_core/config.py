@@ -66,6 +66,30 @@ class CoreSettings(BaseSettings):
         ),
     )
 
+    # How org invites bootstrap a new user's credential.
+    #
+    #   magic_link    Keycloak emails the recipient a one-time link that
+    #                 lands them on the set-password screen, then
+    #                 redirects to the app. Requires KC_SMTP_HOST and a
+    #                 reachable SMTP gateway.
+    #
+    #   temp_password Backend generates a strong temp password, sets it
+    #                 on the new KC user with `temporary=true` (so KC
+    #                 forces UPDATE_PASSWORD on first login), and
+    #                 returns it in the API response. Admin conveys it
+    #                 out-of-band. Use this when outbound SMTP is
+    #                 blocked (Linode, etc.).
+    #
+    #   auto          Try magic_link first; if Keycloak's
+    #                 executeActionsEmail errors (commonly: SMTP not
+    #                 configured / gateway unreachable), fall back to
+    #                 temp_password automatically. Trades a small
+    #                 latency on failure for resilience.
+    invite_delivery: str = Field(
+        default="magic_link",
+        description="One of `magic_link`, `temp_password`, `auto`.",
+    )
+
     @property
     def keycloak_internal_base(self) -> str:
         """Internal base URL (no /realms/... suffix) — used for the admin API."""

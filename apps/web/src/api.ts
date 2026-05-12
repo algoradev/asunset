@@ -91,10 +91,24 @@ export type OrgMember = {
   pending: boolean;
 };
 
+export type InviteDelivery =
+  | "magic_link"
+  | "app_email"
+  | "temporary_password"
+  | "none";
+
 export type InviteResult = {
   member: OrgMember;
-  delivery: "magic_link" | "app_email" | "none";
+  delivery: InviteDelivery;
   was_new_user: boolean;
+  // Returned exactly once when delivery === "temporary_password".
+  // The dialog must surface it; it isn't recoverable afterward.
+  temporary_password: string | null;
+};
+
+export type InviteResendResult = {
+  delivery: "magic_link" | "temporary_password" | "none";
+  temporary_password: string | null;
 };
 
 export type Team = {
@@ -224,7 +238,7 @@ export const api = {
       f,
     ),
   resendOrgInvite: (f: Fetcher, user_id: string) =>
-    request<void>(
+    request<InviteResendResult>(
       `/orgs/current/invites/${user_id}/resend`,
       { method: "POST" },
       f,

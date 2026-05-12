@@ -60,6 +60,7 @@ services:
       NOTIFIER_DEFAULT_SENDER: ${NOTIFIER_DEFAULT_SENDER:-noreply@asunset.local}
       NOTIFIER_DEFAULT_LOCALE: ${NOTIFIER_DEFAULT_LOCALE:-en}
       NOTIFIER_TEMPLATE_DIR: ${NOTIFIER_TEMPLATE_DIR:-}
+      INVITE_DELIVERY: ${INVITE_DELIVERY:-magic_link}
     depends_on:
       postgres:
         condition: service_healthy

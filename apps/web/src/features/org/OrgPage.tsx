@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useAuth } from "react-oidc-context";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Building2, MoreHorizontal } from "lucide-react";
@@ -22,6 +23,12 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -31,6 +38,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/States";
 import { InviteMemberDialog } from "./InviteMemberDialog";
+import { TempPasswordCallout } from "./TempPasswordCallout";
 
 export function OrgPage({ orgRole }: { orgRole: Role }) {
   const auth = useAuth();
@@ -68,9 +76,28 @@ export function OrgPage({ orgRole }: { orgRole: Role }) {
     onError: (e) => toast.error((e as Error).message),
   });
 
+  // When resend lands a temp password, surface it through the same
+  // callout the invite dialog uses — admin needs to read + copy + send
+  // it before dismissing. magic_link mode just toasts.
+  const [resendTempPassword, setResendTempPassword] = useState<{
+    email: string;
+    password: string;
+  } | null>(null);
+
   const resendM = useMutation({
-    mutationFn: (userId: string) => api.resendOrgInvite(f, userId),
-    onSuccess: () => toast.success(t("invite.resendSuccess")),
+    mutationFn: (vars: { userId: string; email: string }) =>
+      api.resendOrgInvite(f, vars.userId).then((r) => ({ result: r, email: vars.email })),
+    onSuccess: ({ result, email: recipient }) => {
+      if (result.delivery === "temporary_password" && result.temporary_password) {
+        setResendTempPassword({
+          email: recipient,
+          password: result.temporary_password,
+        });
+        toast.success(t("invite.resendSuccessTempPassword"));
+      } else {
+        toast.success(t("invite.resendSuccessMagic"));
+      }
+    },
     onError: (e) => toast.error((e as Error).message || t("invite.resendFailed")),
   });
 
@@ -168,7 +195,12 @@ export function OrgPage({ orgRole }: { orgRole: Role }) {
                     m.pending ? (
                       <PendingActions
                         m={m}
-                        onResend={() => resendM.mutate(m.user.id)}
+                        onResend={() =>
+                          resendM.mutate({
+                            userId: m.user.id,
+                            email: m.user.email,
+                          })
+                        }
                         onRevoke={() => revokeM.mutate(m.user.id)}
                         busy={resendM.isPending || revokeM.isPending}
                       />
@@ -189,6 +221,26 @@ export function OrgPage({ orgRole }: { orgRole: Role }) {
           </p>
         )}
       </div>
+
+      <Dialog
+        open={resendTempPassword !== null}
+        onOpenChange={(next) => {
+          if (!next) setResendTempPassword(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("invite.tempPasswordTitle")}</DialogTitle>
+          </DialogHeader>
+          {resendTempPassword && (
+            <TempPasswordCallout
+              email={resendTempPassword.email}
+              password={resendTempPassword.password}
+              onDismiss={() => setResendTempPassword(null)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
