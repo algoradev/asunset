@@ -47,6 +47,11 @@ export function OrgPage({ orgRole }: { orgRole: Role }) {
   const qc = useQueryClient();
 
   const isAdmin = orgRole === "admin";
+  // KC's `sub` claim is the AppUser.id we render in member rows.
+  // Used to suppress destructive actions on the actor's own row —
+  // backend enforces self-removal too, this is the UX shim.
+  const meId =
+    (auth.user?.profile as { sub?: string } | undefined)?.sub ?? null;
 
   const orgQ = useQuery({
     queryKey: ["org"],
@@ -191,8 +196,12 @@ export function OrgPage({ orgRole }: { orgRole: Role }) {
             }
             actions={
               isAdmin
-                ? (m) =>
-                    m.pending ? (
+                ? (m) => {
+                    // Suppress destructive actions on the actor's own row.
+                    // Backend rejects self-removal with 400, but hiding
+                    // the button avoids the foot-gun click entirely.
+                    if (m.user.id === meId) return null;
+                    return m.pending ? (
                       <PendingActions
                         m={m}
                         onResend={() =>
@@ -210,7 +219,8 @@ export function OrgPage({ orgRole }: { orgRole: Role }) {
                         onConfirm={() => removeM.mutate(m.user.id)}
                         busy={removeM.isPending}
                       />
-                    )
+                    );
+                  }
                 : undefined
             }
           />

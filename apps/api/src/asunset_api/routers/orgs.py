@@ -6,7 +6,7 @@ import asyncio
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -389,7 +389,20 @@ async def remove_member(
     org: OrgContext = Depends(require_org_admin),
     authorizer: Authorizer = Depends(get_authorizer),
     audit: AuditSink = Depends(get_audit_sink),
+    principal: Principal = Depends(get_current_principal),
 ) -> None:
+    # Self-removal lockout guard. An admin who clicks Remove on their
+    # own row deletes their org_member row + FGA tuple, then the very
+    # next page-load 403s with no membership. Recovery requires another
+    # admin (or a SQL operator) to put them back. The cost of refusing
+    # is far smaller than the cost of the lockout. Cf. centum follow-up
+    # 2026-05-12.
+    if user_id == principal.user_id:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "you can't remove yourself — ask another admin",
+        )
+
     member = (
         await session.execute(
             select(OrgMember).where(
@@ -399,6 +412,27 @@ async def remove_member(
     ).scalar_one_or_none()
     if member is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not a member")
+
+    # Last-admin guard. Removing the only remaining admin leaves the org
+    # with no one who can manage members or invite — same lockout class
+    # as self-removal but reachable even when the actor is removing
+    # someone else (the actor could then demote themselves, etc.).
+    if member.role == MemberRole.admin:
+        admin_count = (
+            await session.execute(
+                select(func.count())
+                .select_from(OrgMember)
+                .where(
+                    OrgMember.org_id == org.org_id,
+                    OrgMember.role == MemberRole.admin,
+                )
+            )
+        ).scalar_one()
+        if admin_count <= 1:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "cannot remove the last admin — promote another member first",
+            )
 
     user_email = (
         await session.execute(select(AppUser.email).where(AppUser.id == user_id))
