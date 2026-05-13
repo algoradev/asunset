@@ -65,7 +65,6 @@
     "submit": "Enviar invitación",
     "submitting": "Enviando…",
     "successMagicLink": "Invitación enviada. Se envió un enlace mágico a {{email}}.",
-    "successAppEmail": "{{email}} fue añadido y notificado.",
     "successNoMail": "{{email}} añadido. El SMTP no está configurado — comparte la contraseña manualmente.",
     "successTempPassword": "{{email}} añadido. Comparte la contraseña de abajo — no la verás de nuevo.",
     "alreadyMember": "{{email}} ya es miembro de esta organización.",

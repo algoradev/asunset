@@ -519,23 +519,27 @@ async def invite_member(
 ) -> OrgInviteOut:
     """Invite a user to this org by email.
 
-    Three cases handled internally:
+    Two cases handled internally:
 
-    1. **No Keycloak user yet** — create one with
-       `requiredActions=["UPDATE_PASSWORD"]`, fire Keycloak's magic-link
-       email (`delivery: magic_link`, `was_new_user: true`).
-    2. **Keycloak user exists but hasn't verified email** — they were
-       invited before and never accepted. Resend the magic link
-       (`delivery: magic_link`, `was_new_user: false`).
-    3. **Keycloak user exists and is verified** — send our app-side
-       `org_member_added` template (`delivery: app_email`).
+    1. **No Keycloak user yet** — create one, then bootstrap a
+       credential per `INVITE_DELIVERY` (`was_new_user: true`).
+    2. **Keycloak user exists** — bootstrap a credential regardless of
+       prior state (`was_new_user: false`). The previous "fully-onboarded
+       user → notify only" branch was removed (centum follow-up
+       2026-05-13): clicking Invite should always issue access. If an
+       admin wants to add an existing user without resetting their
+       password, the `POST /current/members` endpoint covers that case
+       (lookup by email + add). Resending a welcome reminder to a
+       pending user is `POST /invites/{id}/resend`.
 
-    If realm SMTP isn't configured and we hit case 1 or 2, Keycloak's
-    `executeActionsEmail` will fail. We catch the error and degrade to
-    `delivery: none` — the membership still lands, the operator is
-    expected to share the password out-of-band. That matches what
-    centum-dashboard does today as a stopgap and lets the flow keep
-    working pre-SMTP-setup.
+    Always re-bootstrapping makes the admin's mental model unambiguous
+    ("Invite gives this person fresh access") and removes a sharp edge
+    where an unrelated `emailVerified=true` (from a magic-link click,
+    a manual kcadm hack, anything) silently changed what Invite did.
+
+    If realm SMTP is unavailable, `_bootstrap_credential` degrades to
+    `delivery: none` — the membership lands, the operator resets
+    out-of-band. That preserves the pre-SMTP-setup escape hatch.
     """
     email_input = body.email.strip()
     if "@" not in email_input:
@@ -570,13 +574,11 @@ async def invite_member(
 
     display_name = _display_from_kc(kc_user, email_input)
     canonical_email = (kc_user.get("email") if kc_user else None) or email_input
-    is_pending = _is_pending(kc_user)
 
-    # Welcome context — identical inputs feed every downstream mail
-    # (welcome_temp_password for unverified users, org_member_added for
-    # verified ones). Loaded once here so the existing-pending retry
-    # branch below + the new-user branch below + the verified branch
-    # below all see the same labels.
+    # Welcome context — identical inputs feed the welcome_temp_password
+    # mail sent from inside _bootstrap_credential. Loaded once here so
+    # the existing-member resend branch + the new-member branch both
+    # see the same labels.
     org_row = (
         await session.execute(
             select(Organization).where(Organization.id == org.org_id)
@@ -590,24 +592,32 @@ async def invite_member(
         "inviter_name": inviter_name,
     }
 
-    # Idempotency model — three reasons the same email can be re-POSTed:
+    async def bootstrap() -> tuple[str, str | None]:
+        """Wrap _bootstrap_credential with the standard 502 surface."""
+        try:
+            return await _bootstrap_credential(
+                settings,
+                user_id=user_id,
+                welcome=welcome,
+                email_service=email_service,
+            )
+        except KeycloakAdminError as exc:
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY, f"keycloak: {exc}"
+            ) from exc
+
+    # Already a member of this org? Treat as resend regardless of the
+    # user's onboarding state — Invite means "issue access," and the
+    # bootstrap is idempotent (re-setting a temp password is fine, and
+    # `set_temporary_password` puts UPDATE_PASSWORD back on the user
+    # so the Pending badge reflects the fresh credential). The only
+    # disallowed case is the role mismatch, which is genuinely
+    # ambiguous (change role? new invite? — point at PATCH).
     #
-    # (a) Real duplicate: the user is already a verified, active member of
-    #     this org. → 409.
-    # (b) Pending member, same role: a previous invite committed all the
-    #     way through (KC user + FGA tuple + OrgMember row) but the user
-    #     never accepted. The admin is asking to resend. → re-bootstrap
-    #     the credential and return success; the resend endpoint exists
-    #     too, but a duplicate POST on the create endpoint shouldn't
-    #     punish the operator with a 409 they then have to translate.
-    # (c) Pending member, different role: ambiguous (change role? new
-    #     invite?). → 409 pointing at PATCH.
-    #
-    # The "partial failure" case described in the centum portability
-    # report (KC + FGA committed, OrgMember missing) falls *through* this
-    # check because `existing` is None — we re-do steps 3 + 4 below, with
-    # `tolerate_existing=True` on the FGA write so the orphan tuple from
-    # the prior attempt doesn't 400.
+    # The partial-failure retry case (KC + FGA committed, OrgMember
+    # missing) falls *through* this check because `existing` is None;
+    # the FGA write below uses `tolerate_existing=True` so the orphan
+    # tuple from a prior attempt doesn't 400.
     existing = (
         await session.execute(
             select(OrgMember).where(
@@ -621,23 +631,7 @@ async def invite_member(
                 status.HTTP_409_CONFLICT,
                 "already a member with a different role — use PATCH to change role",
             )
-        if not is_pending:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT, "already a member of this org"
-            )
-        # Pending member, same role — treat as resend.
-        try:
-            delivery, temp_password = await _bootstrap_credential(
-                settings,
-                user_id=user_id,
-                welcome=welcome,
-                email_service=email_service,
-            )
-        except KeycloakAdminError as exc:
-            raise HTTPException(
-                status.HTTP_502_BAD_GATEWAY, f"keycloak: {exc}"
-            ) from exc
-
+        delivery, temp_password = await bootstrap()
         await audit.emit(
             EventType.ORG_INVITE_RESENT,
             action="update",
@@ -692,73 +686,7 @@ async def invite_member(
     # OrgMember committed. Without this flag the retry 400s here.
     await authorizer.write(writes=writes, tolerate_existing=True)
 
-    delivery: str
-    temp_password: str | None = None
-    if not is_pending:
-        # Existing fully-onboarded user — use our own notifier.
-        try:
-            await email_service.send(
-                template="org_member_added",
-                to=canonical_email,
-                context={
-                    "org_name": welcome["org_name"],
-                    "role": welcome["role"],
-                    "inviter_name": welcome["inviter_name"],
-                    "app_url": settings.keycloak_issuer.rsplit("/realms", 1)[0],
-                },
-            )
-            delivery = "app_email"
-        except Exception as exc:  # noqa: BLE001
-            # Don't roll back the membership because mail failed; just
-            # report it so the admin knows.
-            log_msg = str(exc)[:200]
-            delivery = "none"
-            await audit.emit(
-                EventType.ORG_MEMBER_INVITED,
-                action="create",
-                resource_type="org_member",
-                resource_id=user_id,
-                resource_label=canonical_email,
-                permission="org_admin",
-                success=False,
-                payload={
-                    "role": body.role.value,
-                    "delivery": delivery,
-                    "was_new_user": was_new_user,
-                    "error": log_msg,
-                },
-            )
-            return OrgInviteOut(
-                member=OrgMemberOut(
-                    user=UserOut(
-                        id=user_id,
-                        email=canonical_email,
-                        display_name=display_name,
-                    ),
-                    role=member.role,
-                    joined_at=member.joined_at,
-                    pending=False,
-                ),
-                delivery="none",
-                was_new_user=was_new_user,
-            )
-    else:
-        # New user or existing-unverified — bootstrap a credential per
-        # INVITE_DELIVERY (magic_link / temp_password / auto). See
-        # `_bootstrap_credential` for the per-mode behavior. The welcome
-        # mail is sent inside _bootstrap_credential whenever delivery
-        # resolves to temp_password.
-        try:
-            delivery, temp_password = await _bootstrap_credential(
-                settings,
-                user_id=user_id,
-                welcome=welcome,
-                email_service=email_service,
-            )
-        except KeycloakAdminError as exc:
-            raise HTTPException(
-                status.HTTP_502_BAD_GATEWAY, f"keycloak: {exc}"
-            ) from exc
+    delivery, temp_password = await bootstrap()
 
     await audit.emit(
         EventType.ORG_MEMBER_INVITED,
@@ -781,7 +709,7 @@ async def invite_member(
             ),
             role=member.role,
             joined_at=member.joined_at,
-            pending=is_pending,
+            pending=True,
         ),
         delivery=delivery,  # type: ignore[arg-type]
         was_new_user=was_new_user,

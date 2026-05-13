@@ -93,7 +93,6 @@ export type OrgMember = {
 
 export type InviteDelivery =
   | "magic_link"
-  | "app_email"
   | "temporary_password"
   | "none";
 

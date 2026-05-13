@@ -79,7 +79,6 @@ class OrgInviteIn(BaseModel):
 
 InviteDelivery = Literal[
     "magic_link",
-    "app_email",
     "temporary_password",
     "none",
 ]
@@ -89,13 +88,12 @@ class OrgInviteOut(BaseModel):
     """Result of an invite call. Semantics of `delivery`:
 
     - `magic_link`         Keycloak emailed a one-time link.
-    - `app_email`          User already exists + verified — sent the
-                           `org_member_added` template via the
-                           app-side notifier (no password set).
     - `temporary_password` Backend generated a temp password and set
-                           it on the new KC user; admin conveys it
-                           out-of-band. `temporary_password` is
-                           populated. Returned exactly once.
+                           it on the KC user; admin conveys it
+                           out-of-band and the recipient also gets a
+                           welcome mail with credentials.
+                           `temporary_password` is populated.
+                           Returned exactly once.
     - `none`               Membership created but no credential
                            bootstrapped — operator must reset the
                            password manually in Keycloak. Surfaced
@@ -111,11 +109,10 @@ class OrgInviteOut(BaseModel):
 
 
 class OrgInviteResendOut(BaseModel):
-    """Result of a resend call. Same delivery semantics as
-    OrgInviteOut, minus `app_email` / `was_new_user` (resend only
-    applies to pending users)."""
+    """Result of a resend call. Same delivery semantics as OrgInviteOut,
+    minus `was_new_user` (resend always targets an existing member)."""
 
-    delivery: Literal["magic_link", "temporary_password", "none"]
+    delivery: InviteDelivery
     temporary_password: str | None = None
 
 

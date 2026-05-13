@@ -65,7 +65,6 @@
     "submit": "Send invite",
     "submitting": "Sending…",
     "successMagicLink": "Invite sent. {{email}} has been emailed a magic link.",
-    "successAppEmail": "{{email}} has been added and notified.",
     "successNoMail": "{{email}} added. SMTP isn't configured — share their password manually.",
     "successTempPassword": "{{email}} added. Share the password below — you won't see it again.",
     "alreadyMember": "{{email}} is already a member of this organization.",

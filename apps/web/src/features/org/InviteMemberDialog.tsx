@@ -75,9 +75,7 @@ export function InviteMemberDialog() {
       const key =
         result.delivery === "magic_link"
           ? "invite.successMagicLink"
-          : result.delivery === "app_email"
-            ? "invite.successAppEmail"
-            : "invite.successNoMail";
+          : "invite.successNoMail";
       toast.success(t(key, { email: recipient }));
       reset();
       setOpen(false);
