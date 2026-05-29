@@ -244,11 +244,21 @@ INVITE_DELIVERY=temp_password
 
 The invite endpoint then generates a strong one-time password, sets
 it on the new Keycloak user with `temporary=true`, and returns it in
-the API response. The admin sees it in a one-time copyable callout
-in the Invite dialog, conveys it out-of-band (Signal, in person,
-secure chat), and the new user signs in once — Keycloak immediately
-forces them to set their own password, then redirects them into the
-app already a member.
+the API response (the admin sees it in a one-time copyable callout
+in the Invite dialog). **The recipient is also emailed a welcome
+message containing the temporary password and login URL**, sent
+through the app-side Notifier (Resend HTTP, port 443) — so this path
+delivers mail even on hosts where Keycloak's SMTP can't. The
+admin-facing callout stays as a backup in case the mail bounces or
+lands in spam; sharing it out-of-band (Signal, in person) is
+optional, not required. The new user signs in once — Keycloak
+immediately forces them to set their own password, then redirects
+them into the app already a member.
+
+This means the app-side notifier (below) must be configured for the
+welcome mail to actually send: `NOTIFIER_BACKEND=resend` +
+`RESEND_API_KEY`. With the default `log` backend the mail is only
+logged to stdout, and the admin callout is the sole delivery path.
 
 `INVITE_DELIVERY=auto` tries the magic-link path first and falls back
 to a temp password if Keycloak's email errors. Useful on hosts where
@@ -276,12 +286,12 @@ to=user.email, context={...})`. The service composes rendering and
 delivery; you don't see the Notifier directly.
 
 Templates are Jinja2 trios — `<name>.subject.txt`, `<name>.html`,
-`<name>.txt` — under `templates/<locale>/`. Asunset ships `welcome`
-and `org_member_added` in `en` + `es`; the renderer falls back to
-`en` for any locale where a key is missing. To add your own
-templates, point `NOTIFIER_TEMPLATE_DIR` at a directory of overrides
-— it's searched *before* the bundled defaults, so you can replace a
-single template without copying the whole set.
+`<name>.txt` — under `templates/<locale>/`. Asunset ships `welcome`,
+`org_member_added`, and `welcome_temp_password` in `en` + `es`; the
+renderer falls back to `en` for any locale where a key is missing. To
+add your own templates, point `NOTIFIER_TEMPLATE_DIR` at a directory
+of overrides — it's searched *before* the bundled defaults, so you can
+replace a single template without copying the whole set.
 
 Sender identity is intentionally different from Keycloak's:
 `NOTIFIER_DEFAULT_SENDER=noreply@<your-domain>` for the app vs

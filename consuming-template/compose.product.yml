@@ -21,6 +21,13 @@
 # against the project directory too (vendor/asunset/), so `.` here
 # would mean vendor/asunset/, not the consumer root. `../..` climbs
 # back out to where your apps/product-api/ actually lives.
+#
+# If you ever add a service-level `command:` override in an overlay,
+# know that Compose MERGES it as REPLACE, not append — your list wholly
+# supersedes the base's. This silently dropped keycloak-init's
+# manage-users grant + SMTP setup on mode overlays until the script was
+# moved into a mounted file (infra/keycloak/init.sh). Prefer overriding
+# behavior via env vars over redefining a base `command:`.
 
 services:
 
