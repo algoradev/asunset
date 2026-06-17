@@ -68,7 +68,36 @@ echo "keycloak-init: asunset-api service account has manage-users"
 echo "keycloak-init: realm session + OTP policy updated"
 
 # --- asunset-web: rewrite URIs to deployment hostname -------------------
-if [ -n "${WEB_BASE_URL:-}" ]; then
+# The realm export ships dev-default URIs (http://localhost:3000 +
+# :5173). Every non-plain deployment MUST overwrite them or Keycloak
+# rejects login with an opaque "Invalid parameter: redirect_uri".
+#
+# The TLS/tailscale overlays set WEB_BASE_URL directly. But relying on a
+# single var threading through a compose overlay is fragile: if it's
+# unset for any reason on a remote deploy, the client silently keeps the
+# localhost dev URIs (wirebit-crm-client hit exactly this on the first
+# tailnet bootstrap). So: derive WEB_BASE_URL from TAILSCALE_HOST when
+# it's not already set, and refuse to leave localhost URIs on a clearly
+# remote (tailnet) deployment rather than failing silently at login.
+WEB_BASE_URL="${WEB_BASE_URL:-}"
+if [ -z "$WEB_BASE_URL" ] && [ -n "${TAILSCALE_HOST:-}" ]; then
+  WEB_BASE_URL="https://${TAILSCALE_HOST}"
+  echo "keycloak-init: derived WEB_BASE_URL=$WEB_BASE_URL from TAILSCALE_HOST"
+fi
+
+# Fail loud on the landmine: a tailnet deploy (TAILSCALE_HOST set) whose
+# resolved web base is still localhost would ship broken redirect URIs.
+# Stop here with a clear message instead of a runtime login failure.
+case "$WEB_BASE_URL" in
+  http://localhost*|http://127.0.0.1*|"")
+    if [ -n "${TAILSCALE_HOST:-}" ]; then
+      echo "keycloak-init: FATAL — TAILSCALE_HOST=$TAILSCALE_HOST but WEB_BASE_URL resolved to '${WEB_BASE_URL:-<empty>}'; refusing to configure asunset-web with localhost redirect URIs (would reject login with 'Invalid parameter: redirect_uri')" >&2
+      exit 1
+    fi
+    ;;
+esac
+
+if [ -n "$WEB_BASE_URL" ]; then
   WEB_UUID="$("$KCADM" get clients -r "$KEYCLOAK_REALM" -q clientId=asunset-web --fields id --format csv --noquotes | tr -d '\r\n')"
   "$KCADM" update "clients/$WEB_UUID" \
     -r "$KEYCLOAK_REALM" \

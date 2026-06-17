@@ -80,3 +80,8 @@ services:
     environment:
       KC_AUTH_URL: http://keycloak:8080/auth
       WEB_BASE_URL: https://${TAILSCALE_HOST}
+      # Authoritative tailnet host. init.sh derives WEB_BASE_URL from this
+      # if the line above ever fails to thread through, and uses it to
+      # fail loud rather than ship localhost redirect URIs on a tailnet
+      # deploy. Belt-and-suspenders against the redirect_uri landmine.
+      TAILSCALE_HOST: ${TAILSCALE_HOST}
