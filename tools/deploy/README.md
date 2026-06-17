@@ -61,6 +61,59 @@ The wizard prints them once at the end; they also land in `.env`
 (gitignored). Re-running with a pre-existing `.env` offers a
 reuse-secrets path so running Postgres volumes don't mismatch.
 
+## Non-interactive init (CI / CodePipeline / Lightsail)
+
+`asunset init` with no args runs the interactive wizard. Pass any flags (or a
+config file) and it runs unattended — for reproducible client/consumer
+deployments where a wizard breaks pipeline reproducibility.
+
+```sh
+# Config-file mode (preferred — one file is the deployment's source of truth)
+asunset init --config deploy/asunset.init.yaml --yes
+
+# Flag mode (simple automation)
+asunset init --mode tailscale --tailscale-host crm.tail-abc.ts.net --yes
+asunset init --mode tls-operator \
+  --web-host w.example.com --auth-host a.example.com --api-host p.example.com \
+  --cert-path /etc/ssl/full.pem --key-path /etc/ssl/key.pem --yes
+```
+
+`--yes` is required (confirms unattended generation). Flags override config-file
+values. See `asunset init --help` for the full flag list.
+
+**Config file** — a flat `key: value` file (scalar subset of YAML; `#`
+comments allowed):
+
+```yaml
+mode: tailscale                 # plain | tls-internal | tls-operator | tls-acme | tailscale
+tailscale_host: crm.tail-abc.ts.net
+# web_host / auth_host / api_host   for TLS modes
+# cert_path / key_path              for tls-operator
+# acme_email                        for tls-acme
+launch: false                   # write files only (default); true runs docker compose
+```
+
+**Secrets.** Omitted secrets are crypto-generated exactly as the wizard does.
+For deterministic provisioning, supply them via config-file keys
+(`keycloak_admin_password`, `openfga_api_key`, `app_db_password`, …) or the
+canonical env vars of the same name (`KEYCLOAK_ADMIN_PASSWORD`, etc.) — handy
+with AWS Secrets Manager / SSM injection. Supplied secrets are **not** echoed
+to stdout (pipeline logs); pass `--print-secrets` to override.
+
+**Existing `.env`.** Non-interactive runs never silently clobber. If an `.env`
+with a complete secret set already exists you must pass exactly one of:
+
+- `--reuse-secrets` — keep the existing secrets and Postgres volumes, just
+  rewrite mode/host config.
+- `--regenerate-secrets --wipe-volumes` — replace secrets and destroy the old
+  volumes (required together, since the old Postgres volume holds the old
+  passwords).
+
+Otherwise init fails with a clear message rather than guessing.
+
+Validation (mode validity + per-mode required fields) runs **before** any file
+is written, so an invalid combination fails clean.
+
 ## Build from source (developers)
 
 ```sh

@@ -28,7 +28,7 @@ func main() {
 	}
 	switch os.Args[1] {
 	case "init":
-		cmdInit()
+		cmdInit(os.Args[2:])
 	case "up":
 		cmdUp()
 	case "down":
@@ -55,7 +55,8 @@ func printHelp() {
 	fmt.Println("  asunset <command> [args]")
 	fmt.Println()
 	fmt.Println("Commands:")
-	fmt.Println("  init           Interactive setup — generate .env + Caddyfile")
+	fmt.Println("  init           Generate .env + Caddyfile (interactive wizard, or")
+	fmt.Println("                 unattended via --config/--mode + --yes; see `init --help`)")
 	fmt.Println("  up             Start the stack (docker compose up -d)")
 	fmt.Println("  down           Stop the stack (docker compose down)")
 	fmt.Println("  restart [svc]  Restart one service or the whole stack")
@@ -71,7 +72,9 @@ func printHelp() {
 	fmt.Println(muted.Render("a sibling compose.product.yml if one exists."))
 }
 
-func cmdInit() {
+// cmdInitInteractive is the original huh-form wizard. cmdInit (see
+// noninteractive.go) dispatches here when `init` is run with no args.
+func cmdInitInteractive() {
 	fmt.Println(title.Render("asunset · deployment wizard"))
 	fmt.Println(muted.Render("Generates .env and Caddy config for this instance.") + "\n")
 
