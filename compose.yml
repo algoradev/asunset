@@ -116,6 +116,9 @@ services:
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM}
       KEYCLOAK_API_CLIENT_SECRET: ${KEYCLOAK_API_CLIENT_SECRET}
+      # One audience entry per additional resource server (identity
+      # contract D6). Comma-separated strings, not client ids.
+      KEYCLOAK_EXTRA_AUDIENCES: ${KEYCLOAK_EXTRA_AUDIENCES:-}
       # KC_AUTH_URL + WEB_BASE_URL default unset here; the tailscale
       # overlay sets KC_AUTH_URL=http://keycloak:8080/auth and both TLS
       # overlays set WEB_BASE_URL to the public hostname.
@@ -148,6 +151,10 @@ services:
 
   openfga:
     image: openfga/openfga:v1.6
+    # unless-stopped like every other long-running service: the
+    # authorizer dying and staying dead takes the whole API down with it
+    # (observed live: openfga exited 255, api crash-looped for days).
+    restart: unless-stopped
     command: run
     environment:
       OPENFGA_DATASTORE_ENGINE: postgres

@@ -21,6 +21,12 @@
 #                                                  lock realm sslRequired=all
 #   KC_SMTP_HOST  (optional)                    — when set, configure realm SMTP;
 #                                                  empty = local dev / no email
+#   KEYCLOAK_EXTRA_AUDIENCES (optional)         — comma-separated audience values
+#                                                  added to asunset-web access
+#                                                  tokens (identity-contract D6:
+#                                                  one entry per resource server,
+#                                                  e.g. "opsroom-api,opsroom-mcp,
+#                                                  orchestration"). Idempotent.
 
 set -euo pipefail
 
@@ -117,6 +123,43 @@ if [ -n "$WEB_BASE_URL" ]; then
       echo "keycloak-init: realm sslRequired=all"
       ;;
   esac
+fi
+
+# --- extra audiences: one aud entry per resource server (D6) -------------
+# The realm export ships one audience mapper (asunset-api). Deployments
+# with additional resource servers (product API gate, MCP, orchestration)
+# list them in KEYCLOAK_EXTRA_AUDIENCES; each becomes an
+# oidc-audience-mapper on asunset-web using included.custom.audience —
+# custom, because these are audience STRINGS, not Keycloak clients
+# (per D6: no per-RS clients unless a service needs its own outbound
+# credential). Each RS then validates its OWN entry of the aud array.
+# Idempotent by mapper name (audience-<value>); values are never removed
+# here — removing an RS's audience is an explicit operator action.
+if [ -n "${KEYCLOAK_EXTRA_AUDIENCES:-}" ]; then
+  WEB_UUID="${WEB_UUID:-$("$KCADM" get clients -r "$KEYCLOAK_REALM" -q clientId=asunset-web --fields id --format csv --noquotes | tr -d '\r\n')}"
+  EXISTING_MAPPERS="$("$KCADM" get "clients/$WEB_UUID/protocol-mappers/models" -r "$KEYCLOAK_REALM" --fields name --format csv --noquotes 2>/dev/null | tr -d '\r"')"
+  OLD_IFS="$IFS"; IFS=','
+  for AUD in $KEYCLOAK_EXTRA_AUDIENCES; do
+    IFS="$OLD_IFS"
+    AUD="$(echo "$AUD" | tr -d '[:space:]')"
+    [ -z "$AUD" ] && continue
+    if echo "$EXISTING_MAPPERS" | grep -qx "audience-$AUD"; then
+      echo "keycloak-init: audience mapper audience-$AUD already present — skipping"
+      continue
+    fi
+    "$KCADM" create "clients/$WEB_UUID/protocol-mappers/models" \
+      -r "$KEYCLOAK_REALM" \
+      -s "name=audience-$AUD" \
+      -s "protocol=openid-connect" \
+      -s "protocolMapper=oidc-audience-mapper" \
+      -s 'config."included.custom.audience"='"$AUD" \
+      -s 'config."access.token.claim"=true' \
+      -s 'config."id.token.claim"=false'
+    echo "keycloak-init: audience mapper added → $AUD"
+  done
+  IFS="$OLD_IFS"
+else
+  echo "keycloak-init: KEYCLOAK_EXTRA_AUDIENCES unset — token aud stays [asunset-api]"
 fi
 
 # --- TOTP enforcement on platform_admin holders -------------------------

@@ -1,9 +1,12 @@
 package main
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
+
+var nextServiceRe = regexp.MustCompile(`\n  [a-z][a-z0-9-]*:`)
 
 // Regression guard for the co-host port exposure (OpsRoom arc, A6):
 // tailscale mode's posture is "nothing publishes except Caddy on
@@ -27,6 +30,29 @@ func TestTailscaleOverlayResetsDataPlanePorts(t *testing.T) {
 		block := overlay[idx:]
 		if !strings.Contains(block, "ports: !reset []") {
 			t.Errorf("compose.tailscale.yml %s block must contain `ports: !reset []` — without it the base 0.0.0.0 binding survives on tailnet deploys", svc)
+		}
+	}
+}
+
+func TestLongRunningServicesHaveRestartPolicies(t *testing.T) {
+	// Live incident: openfga (no restart policy) exited and stayed dead
+	// for days while api crash-looped behind it. Every long-running
+	// service must declare a restart policy; one-shots stay "no".
+	base := readRepoFile(t, "compose.yml")
+	for _, svc := range []string{"postgres", "keycloak", "openfga", "vector", "api", "web"} {
+		idx := strings.Index(base, "\n  "+svc+":")
+		if idx < 0 {
+			t.Errorf("compose.yml missing expected service %s", svc)
+			continue
+		}
+		// Bound the block at the next top-level service key ("\n  x:"
+		// where x starts a two-space-indented identifier).
+		block := base[idx+1:]
+		if m := nextServiceRe.FindStringIndex(block[3:]); m != nil {
+			block = block[:m[0]+3]
+		}
+		if !strings.Contains(block, "restart: unless-stopped") {
+			t.Errorf("compose.yml %s must declare restart: unless-stopped", svc)
 		}
 	}
 }
