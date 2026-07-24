@@ -17,19 +17,24 @@ var nextServiceRe = regexp.MustCompile(`\n  [a-z][a-z0-9-]*:`)
 // These tests pin the overlay resets and the cohost overlay's
 // loopback-or-nothing defaults so neither can silently regress.
 
-func TestTailscaleOverlayResetsDataPlanePorts(t *testing.T) {
-	overlay := readRepoFile(t, "compose.tailscale.yml")
-
-	for _, svc := range []string{"postgres", "openfga"} {
-		// Find the service block and require a ports reset inside it.
-		idx := strings.Index(overlay, "\n  "+svc+":")
-		if idx < 0 {
-			t.Errorf("compose.tailscale.yml must define a %s service block to reset its ports", svc)
-			continue
-		}
-		block := overlay[idx:]
-		if !strings.Contains(block, "ports: !reset []") {
-			t.Errorf("compose.tailscale.yml %s block must contain `ports: !reset []` — without it the base 0.0.0.0 binding survives on tailnet deploys", svc)
+func TestRemoteOverlaysResetDataPlanePorts(t *testing.T) {
+	// Both remote-facing overlays must stop the data plane publishing —
+	// tailscale AND TLS (the latter faces the open internet in acme mode).
+	for _, file := range []string{"compose.tailscale.yml", "compose.tls.yml"} {
+		overlay := readRepoFile(t, file)
+		for _, svc := range []string{"postgres", "openfga"} {
+			idx := strings.Index(overlay, "\n  "+svc+":")
+			if idx < 0 {
+				t.Errorf("%s must define a %s service block to reset its ports", file, svc)
+				continue
+			}
+			block := overlay[idx:]
+			if m := nextServiceRe.FindStringIndex(block[3:]); m != nil {
+				block = block[:m[0]+3]
+			}
+			if !strings.Contains(block, "ports: !reset []") {
+				t.Errorf("%s %s block must contain `ports: !reset []` — without it the base 0.0.0.0 binding survives on remote deploys", file, svc)
+			}
 		}
 	}
 }

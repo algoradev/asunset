@@ -55,13 +55,21 @@ func TestTailscaleOverlayThreadsHostToKeycloakInit(t *testing.T) {
 func TestKeycloakInitDerivesAndGuardsWebBaseURL(t *testing.T) {
 	script := readRepoFile(t, "infra/keycloak/init.sh")
 
-	// Derives WEB_BASE_URL from TAILSCALE_HOST when not already set.
-	if !strings.Contains(script, `WEB_BASE_URL="https://${TAILSCALE_HOST}"`) {
-		t.Error("init.sh must derive WEB_BASE_URL from TAILSCALE_HOST when unset")
+	// Derives WEB_BASE_URL from the declared remote host (tailnet OR TLS)
+	// when not already set — both overlays share the guard.
+	if !strings.Contains(script, `REMOTE_HOST="${TAILSCALE_HOST:-${TLS_WEB_HOST:-}}"`) {
+		t.Error("init.sh must treat TAILSCALE_HOST and TLS_WEB_HOST as the authoritative remote host")
 	}
-	// Fails loud rather than configuring localhost URIs on a tailnet deploy.
+	if !strings.Contains(script, `WEB_BASE_URL="https://${REMOTE_HOST}"`) {
+		t.Error("init.sh must derive WEB_BASE_URL from the remote host when unset")
+	}
+	// The TLS-mode flavor of the landmine: empty-host interpolation.
+	if !strings.Contains(script, `"$WEB_BASE_URL" = "https://"`) {
+		t.Error("init.sh must treat a bare 'https://' (empty host interpolation) as unset")
+	}
+	// Fails loud rather than configuring localhost URIs on a remote deploy.
 	if !strings.Contains(script, "http://localhost*") || !strings.Contains(script, "FATAL") {
-		t.Error("init.sh must fail loud (FATAL) if a TAILSCALE_HOST deploy would leave localhost redirect URIs")
+		t.Error("init.sh must fail loud (FATAL) if a remote deploy would leave localhost redirect URIs")
 	}
 	// Still performs the actual client rewrite.
 	if !strings.Contains(script, `redirectUris=[\"$WEB_BASE_URL/*\"]`) {

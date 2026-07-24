@@ -14,6 +14,17 @@ volumes:
 
 services:
 
+  # TLS modes face real networks — same posture as the tailscale
+  # overlay: the data plane must not publish. Without these resets the
+  # base file leaves Postgres (5432) and OpenFGA (8081/8083) on 0.0.0.0
+  # on an internet-facing box. Operator debugging: compose.cohost.yml
+  # adds opt-in loopback bindings.
+  postgres:
+    ports: !reset []
+
+  openfga:
+    ports: !reset []
+
   caddy:
     image: caddy:2.8-alpine
     restart: unless-stopped
@@ -71,3 +82,8 @@ services:
   keycloak-init:
     environment:
       WEB_BASE_URL: https://${TLS_WEB_HOST}
+      # Authoritative TLS host. init.sh derives WEB_BASE_URL from this
+      # if the line above fails to thread, and fails loud rather than
+      # ship localhost (or a bare "https://") redirect URIs on a TLS
+      # deploy — same belt-and-suspenders as the tailscale overlay.
+      TLS_WEB_HOST: ${TLS_WEB_HOST}
