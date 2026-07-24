@@ -1,0 +1,35 @@
+# Co-host overlay — run asunset on a machine shared with other services
+# (e.g. a product's own stack on the same host) without port collisions
+# or 0.0.0.0 exposure. Layer it LAST so its bindings win:
+#
+#   docker compose -f compose.yml -f compose.tailscale.yml -f compose.cohost.yml up -d
+#
+# Posture: loopback-or-nothing. Nothing here (or in tailscale mode)
+# publishes beyond 127.0.0.1; inter-container traffic uses the compose
+# network and needs no published ports at all. Publishing exists solely
+# for operator debugging (psql / curl from the host), so it binds
+# loopback and uses non-default host ports that won't collide with a
+# neighboring Postgres or service on the box.
+#
+#   ASUNSET_BIND       bind address           (default 127.0.0.1 — keep it)
+#   ASUNSET_PG_PORT    host port → postgres   (default 15432, not 5432)
+#   ASUNSET_FGA_PORT   host port → OpenFGA    (default 18081)
+#
+# To publish NOTHING (tightest co-host posture), skip this file and use
+# the tailscale overlay alone — it already resets postgres/openfga.
+#
+# `!override` (not plain `ports:`) because compose MERGES port lists
+# across files by appending — without the tag the base file's 0.0.0.0
+# bindings would survive alongside these.
+
+services:
+
+  postgres:
+    ports: !override
+      - "${ASUNSET_BIND:-127.0.0.1}:${ASUNSET_PG_PORT:-15432}:5432"
+
+  openfga:
+    ports: !override
+      - "${ASUNSET_BIND:-127.0.0.1}:${ASUNSET_FGA_PORT:-18081}:8080"
+      # Metrics (2112) intentionally not published — scrape over the
+      # compose network or add a binding here deliberately.

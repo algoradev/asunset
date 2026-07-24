@@ -137,7 +137,7 @@ via subtree, don't fork them.
 
 ```
 asunset/
-├── compose.yml, compose.dev.yml, compose.tls.yml, compose.tailscale.yml, compose.wazuh.yml
+├── compose.yml, compose.dev.yml, compose.tls.yml, compose.tailscale.yml, compose.cohost.yml, compose.wazuh.yml
 ├── .env.example
 ├── install.sh                     # bootstrap docker + go + asunset CLI on a fresh host
 ├── apps/

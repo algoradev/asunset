@@ -18,6 +18,20 @@ volumes:
 
 services:
 
+  # Tailscale mode's posture is "nothing publishes except Caddy on
+  # loopback" — that must include the data plane. Without these resets
+  # the base file's bindings leave Postgres (5432) and OpenFGA (8081
+  # HTTP API, 8083 metrics) listening on 0.0.0.0 on every tailnet
+  # deploy; on hosts without an external firewall that is an exposure,
+  # and on shared hosts a guaranteed port collision. Containers reach
+  # both over the compose network; operators debug via `docker exec`
+  # or the compose.cohost.yml opt-in loopback publishing.
+  postgres:
+    ports: !reset []
+
+  openfga:
+    ports: !reset []
+
   caddy:
     image: caddy:2.8-alpine
     restart: unless-stopped
