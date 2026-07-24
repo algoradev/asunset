@@ -395,4 +395,11 @@ Single login client stays. Tokens carry an **array of audiences** — one entry 
 | Consumer API reusing the platform audience | `consuming-template/compose.product.yml` |
 | Tailnet issuer/path-prefix wiring | `compose.tailscale.yml` |
 
-**Caveat on assurance.** As of `fb4e995` the validation path in §5, the RLS fence in §7.3, and the Authorizer decisions in §7 have **no automated test coverage** — 36 Python tests exist: 17 notifications, 17 keycloak-admin, 1 alembic helper, 1 health. This document describes *code-verified* behavior, not *test-verified* behavior. Closing that gap is the parallel commission (RLS isolation → FGA semantics → JWT validation).
+**Assurance status (updated 2026-07-24).** The security-path commission is complete — the load-bearing claims in this document are now **test-verified**, not merely code-verified:
+
+- **§5 token validation** — 13 tests against a real ephemeral Keycloak importing the production realm export (`test_jwt_validation.py`): required claims, both audience-rejection branches, real expiry, split-issuer mismatch, alg-none downgrade, forged signatures, key-rotation tolerance, JWKS caching.
+- **§7.3 RLS fence** — 14 adversarial tests as the app role running raw SQL against a real Postgres provisioned by the production init script (`test_rls_isolation.py`).
+- **§7 Authorizer decisions** — 15 tests against a real ephemeral OpenFGA with the production model (`test_fga_semantics.py`), including the audit `permission_path` vocabulary and the dual-write retry contract.
+- **§5.1a session tokens** — 19 hermetic tests (`test_session_tokens.py`).
+
+Still outstanding: a live-composed-stack smoke (login → mint → API through Caddy) that verifies deployment *wiring* rather than logic, tracked in the commission thread.
