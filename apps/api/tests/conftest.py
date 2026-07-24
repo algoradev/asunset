@@ -209,6 +209,102 @@ async def _seed(db: SeededDb) -> None:
         await conn.close()
 
 
+@dataclass
+class FgaServer:
+    """Connection facts for the ephemeral OpenFGA under test."""
+
+    api_url: str
+    api_key: str
+    store_id: str = ""
+    model_id: str = ""
+
+    def settings(self):  # noqa: ANN201 — CoreSettings, imported lazily
+        from asunset_core.config import CoreSettings
+
+        return CoreSettings(
+            app_db_url="postgresql+asyncpg://unused/unused",
+            app_admin_db_url="postgresql+asyncpg://unused/unused",
+            keycloak_issuer="http://placeholder/realms/asunset",
+            keycloak_internal_issuer="http://placeholder/realms/asunset",
+            keycloak_api_client_id="asunset-api",
+            keycloak_api_client_secret="unused",
+            openfga_api_url=self.api_url,
+            openfga_store_name="asunset-fga-test",
+            openfga_api_key=self.api_key,
+        )
+
+
+def _start_fga_container() -> tuple[str, int]:
+    name = f"asunset-fga-test-{uuid.uuid4().hex[:8]}"
+    subprocess.run(
+        [
+            "docker", "run", "-d", "--name", name,
+            "-p", "127.0.0.1::8080",
+            # Preshared auth, matching the production compose config —
+            # the client-side Credentials path is part of what's under test.
+            "-e", "OPENFGA_AUTHN_METHOD=preshared",
+            "-e", "OPENFGA_AUTHN_PRESHARED_KEYS=test-key",
+            "openfga/openfga:v1.6", "run",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    out = subprocess.run(
+        ["docker", "port", name, "8080/tcp"], check=True, capture_output=True, text=True
+    ).stdout
+    for line in out.splitlines():
+        host, _, port = line.strip().rpartition(":")
+        if host.startswith("127.0.0.1"):
+            return name, int(port)
+    raise RuntimeError(f"could not resolve published port from: {out!r}")
+
+
+async def _wait_fga_ready(server: FgaServer, timeout: float = 60.0) -> None:
+    import httpx
+
+    deadline = time.monotonic() + timeout
+    last: object = None
+    async with httpx.AsyncClient(
+        base_url=server.api_url,
+        headers={"Authorization": f"Bearer {server.api_key}"},
+        timeout=3.0,
+    ) as client:
+        while time.monotonic() < deadline:
+            try:
+                resp = await client.get("/stores")
+                if resp.status_code == 200:
+                    return
+                last = resp.status_code
+            except Exception as e:  # noqa: BLE001 — retry until deadline
+                last = e
+            await asyncio.sleep(0.4)
+    raise RuntimeError(f"openfga container not ready after {timeout}s: {last}")
+
+
+@pytest.fixture(scope="session")
+def fga_server() -> FgaServer:
+    """Ephemeral OpenFGA (in-memory datastore, preshared auth) with the
+    real platform+Notes model bootstrapped via `bootstrap_openfga` —
+    so bootstrap/pinning is itself under test, not just checks."""
+    if not _docker_available():
+        pytest.skip("docker not available — FGA suite needs a real OpenFGA")
+
+    name, port = _start_fga_container()
+    server = FgaServer(api_url=f"http://127.0.0.1:{port}", api_key="test-key")
+    try:
+        asyncio.run(_wait_fga_ready(server))
+
+        from asunset_api.fga.model import AUTHORIZATION_MODEL
+        from asunset_core.fga.bootstrap import bootstrap_openfga
+
+        server.store_id, server.model_id = asyncio.run(
+            bootstrap_openfga(server.settings(), AUTHORIZATION_MODEL)
+        )
+        yield server
+    finally:
+        subprocess.run(["docker", "rm", "-f", "-v", name], capture_output=True)
+
+
 @pytest.fixture(scope="session")
 def rls_db() -> SeededDb:
     if not _docker_available():
