@@ -305,6 +305,217 @@ def fga_server() -> FgaServer:
         subprocess.run(["docker", "rm", "-f", "-v", name], capture_output=True)
 
 
+@dataclass
+class KeycloakServer:
+    """Ephemeral Keycloak with the REAL realm-export.json imported.
+
+    Tokens obtained here are genuine Keycloak-minted JWTs through the
+    real protocol mappers (realm-roles, audience-api) — what contract
+    §5 validation actually faces in production.
+    """
+
+    base_url: str
+    admin_password: str = "admin-test-pw"
+    realm: str = "asunset"
+
+    @property
+    def issuer(self) -> str:
+        return f"{self.base_url}/realms/{self.realm}"
+
+    def _admin_token(self) -> str:
+        import httpx
+
+        resp = httpx.post(
+            f"{self.base_url}/realms/master/protocol/openid-connect/token",
+            data={
+                "grant_type": "password",
+                "client_id": "admin-cli",
+                "username": "admin",
+                "password": self.admin_password,
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return resp.json()["access_token"]
+
+    def admin(self, method: str, path: str, **kwargs):  # noqa: ANN201
+        import httpx
+
+        resp = httpx.request(
+            method,
+            f"{self.base_url}/admin/realms/{self.realm}{path}",
+            headers={"Authorization": f"Bearer {self._admin_token()}"},
+            timeout=10,
+            **kwargs,
+        )
+        resp.raise_for_status()
+        return resp
+
+    def user_token(self, username: str, password: str, client_id: str = "asunset-web") -> str:
+        import httpx
+
+        resp = httpx.post(
+            f"{self.issuer}/protocol/openid-connect/token",
+            data={
+                "grant_type": "password",
+                "client_id": client_id,
+                "username": username,
+                "password": password,
+                "scope": "openid profile email",
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return resp.json()["access_token"]
+
+    def settings(self):  # noqa: ANN201 — CoreSettings, lazily imported
+        from asunset_core.config import CoreSettings
+
+        return CoreSettings(
+            app_db_url="postgresql+asyncpg://unused/unused",
+            app_admin_db_url="postgresql+asyncpg://unused/unused",
+            keycloak_issuer=self.issuer,
+            keycloak_internal_issuer=self.issuer,
+            keycloak_realm=self.realm,
+            keycloak_api_client_id="asunset-api",
+            keycloak_api_client_secret="unused",
+            openfga_api_url="http://placeholder:8080",
+            openfga_api_key="unused",
+        )
+
+
+def _start_keycloak_container() -> tuple[str, int]:
+    name = f"asunset-kc-test-{uuid.uuid4().hex[:8]}"
+    subprocess.run(
+        [
+            "docker", "run", "-d", "--name", name,
+            "-p", "127.0.0.1::8080",
+            "-e", "KEYCLOAK_ADMIN=admin",
+            "-e", "KEYCLOAK_ADMIN_PASSWORD=admin-test-pw",
+            "-v", f"{REPO_ROOT}/infra/keycloak/realm-export.json"
+                  ":/opt/keycloak/data/import/realm-export.json:ro",
+            "quay.io/keycloak/keycloak:25.0",
+            "start-dev", "--import-realm",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    out = subprocess.run(
+        ["docker", "port", name, "8080/tcp"], check=True, capture_output=True, text=True
+    ).stdout
+    for line in out.splitlines():
+        host, _, port = line.strip().rpartition(":")
+        if host.startswith("127.0.0.1"):
+            return name, int(port)
+    raise RuntimeError(f"could not resolve published port from: {out!r}")
+
+
+def _wait_keycloak_ready(base_url: str, realm: str, timeout: float = 120.0) -> None:
+    import httpx
+
+    deadline = time.monotonic() + timeout
+    last: object = None
+    while time.monotonic() < deadline:
+        try:
+            resp = httpx.get(f"{base_url}/realms/{realm}", timeout=3)
+            if resp.status_code == 200:
+                return
+            last = resp.status_code
+        except Exception as e:  # noqa: BLE001 — retry until deadline
+            last = e
+        time.sleep(1.0)
+    raise RuntimeError(f"keycloak container not ready after {timeout}s: {last}")
+
+
+@pytest.fixture(scope="session")
+def keycloak() -> KeycloakServer:
+    if not _docker_available():
+        pytest.skip("docker not available — JWT suite needs a real Keycloak")
+
+    name, port = _start_keycloak_container()
+    server = KeycloakServer(base_url=f"http://127.0.0.1:{port}")
+    try:
+        _wait_keycloak_ready(server.base_url, server.realm)
+
+        # Test-only realm mutations (ephemeral instance, never the export):
+        # 1. Direct access grants on asunset-web so tests can obtain real
+        #    user tokens without a browser (prod keeps this OFF).
+        clients = server.admin("GET", "/clients", params={"clientId": "asunset-web"}).json()
+        web = clients[0]
+        web["directAccessGrantsEnabled"] = True
+        server.admin("PUT", f"/clients/{web['id']}", json=web)
+        # 2. alice ships with CONFIGURE_TOTP required (the platform_admin
+        #    MFA posture) which blocks direct grants — clear it for tests.
+        users = server.admin("GET", "/users", params={"username": "alice"}).json()
+        alice = users[0]
+        alice["requiredActions"] = []
+        server.admin("PUT", f"/users/{alice['id']}", json=alice)
+        # 3. A client with NO audience mapper — its tokens must be
+        #    rejected by aud validation.
+        server.admin(
+            "POST", "/clients",
+            json={
+                "clientId": "no-audience-client",
+                "publicClient": True,
+                "directAccessGrantsEnabled": True,
+                "standardFlowEnabled": False,
+                "enabled": True,
+            },
+        )
+        # 3b. A client whose audience mapper names a DIFFERENT resource
+        #     server — its tokens carry an aud, just not ours.
+        server.admin(
+            "POST", "/clients",
+            json={
+                "clientId": "wrong-audience-client",
+                "publicClient": True,
+                "directAccessGrantsEnabled": True,
+                "standardFlowEnabled": False,
+                "enabled": True,
+                "protocolMappers": [
+                    {
+                        "name": "audience-other",
+                        "protocol": "openid-connect",
+                        "protocolMapper": "oidc-audience-mapper",
+                        "config": {
+                            "included.custom.audience": "some-other-service",
+                            "access.token.claim": "true",
+                            "id.token.claim": "false",
+                        },
+                    }
+                ],
+            },
+        )
+        # 4. A short-lived client (1s tokens) WITH the asunset-api
+        #    audience, for real-expiry testing.
+        server.admin(
+            "POST", "/clients",
+            json={
+                "clientId": "short-lived-client",
+                "publicClient": True,
+                "directAccessGrantsEnabled": True,
+                "standardFlowEnabled": False,
+                "enabled": True,
+                "attributes": {"access.token.lifespan": "1"},
+                "protocolMappers": [
+                    {
+                        "name": "audience-api",
+                        "protocol": "openid-connect",
+                        "protocolMapper": "oidc-audience-mapper",
+                        "config": {
+                            "included.client.audience": "asunset-api",
+                            "access.token.claim": "true",
+                            "id.token.claim": "false",
+                        },
+                    }
+                ],
+            },
+        )
+        yield server
+    finally:
+        subprocess.run(["docker", "rm", "-f", "-v", name], capture_output=True)
+
+
 @pytest.fixture(scope="session")
 def rls_db() -> SeededDb:
     if not _docker_available():
