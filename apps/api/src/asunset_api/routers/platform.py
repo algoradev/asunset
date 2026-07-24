@@ -197,3 +197,188 @@ async def reconcile_fga_endpoint(
         added_tuples=report.added_tuples,
         drift_by_type=report.drift_by_type,
     )
+
+
+# --- agent sessions (D4 mint — docs/session-token-mint-spec.md) ----------
+
+from datetime import UTC, datetime, timedelta  # noqa: E402
+from uuid import uuid4  # noqa: E402
+
+from asunset_core.auth.session_tokens import (  # noqa: E402
+    AGENT_ID_RE,
+    get_session_signer,
+    mint_session_token,
+)
+from asunset_core.db.models import AgentSession  # noqa: E402
+from asunset_api.config import get_settings  # noqa: E402
+from asunset_api.routers.deps import get_audit_sink  # noqa: E402
+
+
+class SessionGrant(BaseModel):
+    relation: str = Field(min_length=1, max_length=64)
+    object: str = Field(min_length=1, max_length=255)
+
+
+class SessionMintIn(BaseModel):
+    agent_id: str = Field(min_length=1, max_length=64)
+    audiences: list[str] = Field(min_length=1, max_length=16)
+    grants: list[SessionGrant] = Field(min_length=1, max_length=64)
+    ttl_seconds: int = Field(default=1800, ge=60)
+    label: str | None = Field(default=None, max_length=200)
+
+
+class SessionMintOut(BaseModel):
+    session_id: UUID
+    token: str
+    expires_at: datetime
+
+
+class SessionOut(BaseModel):
+    session_id: UUID
+    agent_id: str
+    label: str | None
+    audiences: list[str]
+    grants: list[SessionGrant]
+    created_at: datetime
+    expires_at: datetime
+    revoked_at: datetime | None
+
+
+@router.get("/sessions/jwks")
+async def session_jwks() -> dict:
+    """Session-token JWKS — unauthenticated, like any JWKS endpoint.
+
+    Resource servers fetch this (in-network) to validate tokens whose
+    `iss` is the session issuer; Keycloak's JWKS still validates login
+    tokens. Selection is by `iss` (contract §5 amendment, D7=A).
+    """
+    return get_session_signer(get_settings()).jwks()
+
+
+@router.post("/sessions", response_model=SessionMintOut, status_code=status.HTTP_201_CREATED)
+async def mint_session(
+    body: SessionMintIn,
+    principal: Principal = Depends(get_current_principal),
+    org: OrgContext = Depends(get_current_org),
+    db: AsyncSession = Depends(get_db),
+    audit: AuditSink = Depends(get_audit_sink),
+) -> SessionMintOut:
+    """Mint a scoped agent session from the calling human's login.
+
+    Only a LOGIN token may mint (an agent session must not spawn further
+    credentials). sub stays the human; the token's fresh sid is the
+    agent_session row id, so audit distinguishes agent sessions through
+    the existing session_id plumbing.
+    """
+    settings = get_settings()
+    if principal.is_agent_session:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "agent sessions cannot mint sessions"
+        )
+    if not AGENT_ID_RE.match(body.agent_id):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "agent_id must match ^[a-z0-9][a-z0-9_-]{0,63}$",
+        )
+    allowed = set(settings.allowed_audiences)
+    bad = [a for a in body.audiences if a not in allowed]
+    if bad:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"audiences not in this deployment's allowed set: {bad}",
+        )
+
+    ttl = min(body.ttl_seconds, settings.session_token_max_ttl_seconds)
+    expires_at = datetime.now(UTC) + timedelta(seconds=ttl)
+    row = AgentSession(
+        id=uuid4(),
+        org_id=org.org_id,
+        user_id=principal.user_id,
+        agent_id=body.agent_id,
+        label=body.label,
+        audiences=body.audiences,
+        grants=[g.model_dump() for g in body.grants],
+        expires_at=expires_at,
+    )
+    db.add(row)
+    await db.flush([row])
+
+    token = mint_session_token(
+        get_session_signer(settings),
+        user_id=principal.user_id,
+        agent_id=body.agent_id,
+        session_id=row.id,
+        audiences=body.audiences,
+        ttl_seconds=ttl,
+    )
+    await audit.emit(
+        EventType.SESSION_MINTED,
+        action="mint",
+        resource_type="agent_session",
+        resource_id=row.id,
+        resource_label=body.label,
+        payload={
+            "agent_id": body.agent_id,
+            "audiences": body.audiences,
+            "ttl_seconds": ttl,
+            "grant_count": len(body.grants),
+        },
+    )
+    return SessionMintOut(session_id=row.id, token=token, expires_at=expires_at)
+
+
+@router.get("/sessions", response_model=list[SessionOut])
+async def list_sessions(
+    principal: Principal = Depends(get_current_principal),
+    org: OrgContext = Depends(get_current_org),
+    db: AsyncSession = Depends(get_db),
+) -> list[SessionOut]:
+    """Own sessions; org admins see the whole org's (RLS already fences)."""
+    stmt = select(AgentSession).order_by(AgentSession.created_at.desc())
+    if not org.is_admin:
+        stmt = stmt.where(AgentSession.user_id == principal.user_id)
+    result = await db.execute(stmt)
+    return [
+        SessionOut(
+            session_id=r.id,
+            agent_id=r.agent_id,
+            label=r.label,
+            audiences=r.audiences,
+            grants=[SessionGrant(**g) for g in r.grants],
+            created_at=r.created_at,
+            expires_at=r.expires_at,
+            revoked_at=r.revoked_at,
+        )
+        for r in result.scalars().all()
+    ]
+
+
+@router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_session(
+    session_id: UUID,
+    principal: Principal = Depends(get_current_principal),
+    org: OrgContext = Depends(get_current_org),
+    db: AsyncSession = Depends(get_db),
+    audit: AuditSink = Depends(get_audit_sink),
+) -> None:
+    """Revoke = set revoked_at; takes effect on the session's next
+    request (the authorizer dep re-reads the row every time). Allowed to
+    the minting human, org admins, and platform_admin."""
+    result = await db.execute(select(AgentSession).where(AgentSession.id == session_id))
+    row = result.scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown session")
+    if not (
+        row.user_id == principal.user_id or org.is_admin or principal.is_platform_admin
+    ):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "not your session")
+    if row.revoked_at is None:
+        row.revoked_at = datetime.now(UTC)
+        await audit.emit(
+            EventType.SESSION_REVOKED,
+            action="revoke",
+            resource_type="agent_session",
+            resource_id=row.id,
+            resource_label=row.label,
+            payload={"agent_id": row.agent_id},
+        )

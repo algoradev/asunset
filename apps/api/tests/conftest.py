@@ -65,8 +65,13 @@ def _docker_available() -> bool:
     if shutil.which("docker") is None:
         return False
     try:
+        # `version` is much lighter than `info`, and the generous timeout
+        # matters: a busy daemon (e.g. another container crash-looping on
+        # the host) can stall simple queries for tens of seconds, and a
+        # false negative here silently skips the whole isolation suite.
         subprocess.run(
-            ["docker", "info"], capture_output=True, timeout=15, check=True
+            ["docker", "version", "--format", "{{.Server.Version}}"],
+            capture_output=True, timeout=60, check=True,
         )
     except (subprocess.SubprocessError, OSError):
         return False

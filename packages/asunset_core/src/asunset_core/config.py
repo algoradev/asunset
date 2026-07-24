@@ -90,6 +90,30 @@ class CoreSettings(BaseSettings):
         description="One of `magic_link`, `temp_password`, `auto`.",
     )
 
+    # Extra audience values stamped into web tokens, one per additional
+    # resource server (identity contract D6). Mirrors the value given to
+    # keycloak-init; the API uses it to validate mint requests' audience
+    # subsets.
+    keycloak_extra_audiences: str = ""
+
+    # --- agent session tokens (D4 mint; docs/session-token-mint-spec.md) --
+    # base64-encoded RSA private key PEM. Empty = ephemeral per-process
+    # key (dev only — sessions die on restart; the signer logs a warning).
+    session_token_private_key_b64: str = ""
+    # Issuer string for session tokens. Never fetched as a URL —
+    # validators match it exactly and select the session JWKS source.
+    session_token_issuer: str = ""
+    session_token_max_ttl_seconds: int = 3600
+
+    @property
+    def resolved_session_token_issuer(self) -> str:
+        return self.session_token_issuer or f"urn:asunset:sessions:{self.keycloak_realm}"
+
+    @property
+    def allowed_audiences(self) -> list[str]:
+        extras = [a.strip() for a in self.keycloak_extra_audiences.split(",") if a.strip()]
+        return [self.keycloak_api_client_id, *extras]
+
     @property
     def keycloak_internal_base(self) -> str:
         """Internal base URL (no /realms/... suffix) — used for the admin API."""

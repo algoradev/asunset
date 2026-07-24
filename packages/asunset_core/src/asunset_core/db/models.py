@@ -167,3 +167,35 @@ class AuditEvent(Base):
     permission_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
     success: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+
+class AgentSession(Base):
+    """A scoped agent session minted from a human's login (D4 mint).
+
+    Row state is the revocation/expiry authority — the token alone is
+    never sufficient (checked on every request by the authorizer dep).
+    `grants` holds the declared capability subset as
+    [{"relation": r, "object": pattern}]; effective permission is this
+    subset ∩ the human's live permissions. Tenant table (RLS), with an
+    org_member-style self arm so the row can be loaded before org
+    context is established.
+    """
+
+    __tablename__ = "agent_session"
+
+    id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=uuid4)
+    org_id: Mapped[UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("organization.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False
+    )
+    agent_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    label: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    audiences: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    grants: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

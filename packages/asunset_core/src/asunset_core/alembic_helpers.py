@@ -31,7 +31,7 @@ from __future__ import annotations
 # The current head of asunset's platform migrations
 # (apps/api/alembic/versions/). Bumped by hand whenever a new platform
 # migration lands. `tests/test_alembic_helpers.py` enforces the match.
-PLATFORM_HEAD = "0004"
+PLATFORM_HEAD = "0005"
 
 
 def platform_head() -> str:

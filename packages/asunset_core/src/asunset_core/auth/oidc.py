@@ -23,6 +23,12 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from asunset_core.auth.principal import Principal
+from asunset_core.auth.session_tokens import (
+    SessionTokenError,
+    get_session_signer,
+    peek_issuer,
+    validate_session_token,
+)
 from asunset_core.config import CoreSettings as Settings, get_core_settings as get_settings
 from asunset_core.db.models import AppUser
 from asunset_core.db.session import session_scope
@@ -138,6 +144,13 @@ async def get_current_principal(
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "missing bearer token")
 
+    # Two issuers (identity contract §5 amendment, D7=A): Keycloak for
+    # login tokens, asunset itself for minted agent-session tokens. The
+    # unverified `iss` peek ONLY selects the validation path — the
+    # selected path verifies everything, including `iss`, cryptographically.
+    if peek_issuer(credentials.credentials) == settings.resolved_session_token_issuer:
+        return await _session_principal(request, credentials.credentials, settings)
+
     claims = await _validate_token(credentials.credentials, settings)
 
     # The app_user mirror write must happen with RLS disabled for the
@@ -154,6 +167,49 @@ async def get_current_principal(
         display_name=user.display_name,
         realm_roles=roles,
         session_id=claims.get("sid"),
+    )
+    request.state.principal = principal
+    return principal
+
+
+async def _session_principal(
+    request: Request, token: str, settings: Settings
+) -> Principal:
+    """Build the Principal for an asunset-minted agent session token.
+
+    `sub` is the HUMAN (D1) — the user row must already exist (it was
+    minted from their live login; no upsert, session tokens carry no
+    profile claims). realm_roles is deliberately EMPTY: an agent session
+    never wields platform_admin/platform_support, regardless of what the
+    human holds — operator surfaces require a login token. Row-state
+    checks (revoked/expired/grants) happen in the authorizer dependency,
+    which loads the agent_session row on every request.
+    """
+    signer = get_session_signer(settings)
+    try:
+        claims = validate_session_token(
+            token, signer, expected_audience=settings.keycloak_api_client_id
+        )
+    except SessionTokenError as e:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(e)) from e
+
+    sub = UUID(claims["sub"])
+    async with session_scope() as session:
+        result = await session.execute(select(AppUser).where(AppUser.id == sub))
+        user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "session token subject unknown to this instance"
+        )
+
+    principal = Principal(
+        user_id=user.id,
+        email=user.email,
+        display_name=user.display_name,
+        realm_roles=frozenset(),
+        session_id=claims["sid"],
+        agent_id=claims["act"]["sub"].removeprefix("agent:"),
+        token_type="session",
     )
     request.state.principal = principal
     return principal

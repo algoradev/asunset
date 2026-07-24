@@ -33,7 +33,10 @@ import pytest
 
 from .conftest import APP_DB_USER, SeededDb
 
-TENANT_TABLES = ("organization", "team", "org_member", "team_member", "note", "audit_event")
+TENANT_TABLES = (
+    "organization", "team", "org_member", "team_member", "note", "audit_event",
+    "agent_session",  # added in migration 0005 (D4 mint)
+)
 
 
 async def _apply_ctx(conn: asyncpg.Connection, uid: UUID | None, oid: UUID | str | None) -> None:

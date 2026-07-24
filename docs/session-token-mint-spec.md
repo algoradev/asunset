@@ -1,7 +1,6 @@
 # Agent Session Tokens — D4 Mint Design Spec
 
-**Status:** SPEC — implements the ratified D4 direction (identity contract §11); target per Avi 2026-07-24: agents cryptographic at adoption day, with the pre-agreed fallback that adoption never waits on this (interim = orchestration-asserted `agent_id`).
-**Contains one open decision:** **D7 — signing authority** (§3), surfaced early per kestrel because it touches every resource server. Recommendation included; Avi rules.
+**Status:** IMPLEMENTED (v1) — see implementation notes at the end. **D7 ruled by Avi 2026-07-24: Option A** (asunset-signed, second issuer). Target per Avi: agents cryptographic at adoption day, with the pre-agreed fallback that adoption never waits on this (interim = orchestration-asserted `agent_id`).
 
 ---
 
@@ -109,3 +108,14 @@ The fork kestrel flagged: **who signs session tokens?** Token-exchange being abs
 5. `DELETE /platform/sessions/{id}` + `GET /platform/sessions` (list own; admins list all) — revocation + visibility.
 6. Tests: mint/validate/intersect/revoke/expire (folds into the JWT phase of the security-path commission).
 7. Contract §5/§9 amendment + notify all RS owners (opsroom-api, orchestration, Node MCP).
+
+---
+
+## 6. v1 implementation notes (what shipped, and two deliberate deviations)
+
+Shipped in `asunset_core.auth.session_tokens` + `AgentSession` model/migration `0005` + `/platform/sessions*` endpoints. Deviations from the letter of the spec above, both flagged rather than silent:
+
+1. **Issuer is `urn:asunset:sessions:<realm>`** (override: `SESSION_TOKEN_ISSUER`), not a URL. The issuer is an identifier matched exactly by validators — never fetched — while the JWKS is served in-network at `GET /platform/sessions/jwks`. A URL-shaped iss implied a public discovery contract nothing needs and path-prefix modes would complicate.
+2. **The grant subset lives in the `agent_session` row (RLS-fenced), not yet in FGA conditional tuples.** `SessionScopedAuthorizer` enforces the identical ratified semantics — subset ∩ human's live permission, deny-by-default, instant revocation via row state re-read every request. Moving the subset into FGA conditional tuples requires every product model's resource relations to admit `agent_session` as a grantee type — a per-consumer model migration that shouldn't gate the mint. It remains the intended end-state once product models opt in; the enforcement seam (`session_allows`) is the only code that would change.
+
+Also implemented beyond the letter: agent sessions get an **empty realm-role set** (no `platform_admin` via agent, ever), cannot mint further sessions, and `Authorizer.write`/`read_tuples` are refused outright for scoped sessions. Key provisioning: `SESSION_TOKEN_PRIVATE_KEY_B64` (base64 PEM; `openssl genrsa 2048 | base64 -w0`), ephemeral per-process fallback for dev with a loud warning. CLI-generated persistent keys are a deploy-tooling follow-up.

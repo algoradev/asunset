@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request, status
@@ -105,13 +106,59 @@ async def get_db(
             raise
 
 
-def get_authorizer(request: Request) -> Authorizer:
+def _base_authorizer(request: Request) -> Authorizer:
     authz: Authorizer | None = getattr(request.app.state, "authorizer", None)
     if authz is None:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "authorizer not initialized"
         )
     return authz
+
+
+async def get_authorizer(
+    request: Request,
+    principal: Principal = Depends(get_current_principal),
+) -> Authorizer:
+    """The platform Authorizer — wrapped for agent sessions.
+
+    For login tokens this is the app-scoped OpenFGA authorizer as-is.
+    For asunset-minted session tokens (D4) the agent_session row is
+    loaded ON EVERY REQUEST — revoked/expired/foreign rows 401 here,
+    which is what makes revocation instant — and the authorizer is
+    wrapped so every decision is: session's declared grant subset AND
+    the human's live permission.
+
+    The row is loaded with only app.current_user_id set (self arm of the
+    RLS policy), deliberately NOT through get_db: this dependency must
+    also work for flows that predate org context.
+    """
+    base = _base_authorizer(request)
+    if not principal.is_agent_session:
+        return base
+
+    from asunset_core.auth.session_tokens import SessionScopedAuthorizer
+    from asunset_core.db.models import AgentSession
+
+    factory = get_session_factory()
+    async with factory() as session:
+        await session.execute(
+            text("SELECT set_config('app.current_user_id', :uid, true), "
+                 "set_config('app.current_org_id', '', true)"),
+            {"uid": str(principal.user_id)},
+        )
+        result = await session.execute(
+            select(AgentSession).where(AgentSession.id == UUID(str(principal.session_id)))
+        )
+        row = result.scalar_one_or_none()
+
+    if row is None or row.user_id != principal.user_id:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "unknown agent session")
+    if row.revoked_at is not None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "agent session revoked")
+    if row.expires_at <= datetime.now(UTC):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "agent session expired")
+
+    return SessionScopedAuthorizer(base, row.grants)
 
 
 def get_email_service(request: Request) -> EmailService:

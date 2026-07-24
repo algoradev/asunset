@@ -41,6 +41,11 @@ class EventType(str, enum.Enum):
     TEAM_MEMBER_REMOVED = "team.member_removed"
     TEAM_MEMBER_ROLE_CHANGED = "team.member_role_changed"
 
+    # Agent sessions (D4 mint) — lifecycle of scoped, attributable
+    # agent credentials derived from a human login.
+    SESSION_MINTED = "session.minted"
+    SESSION_REVOKED = "session.revoked"
+
     # Authorization outcomes (supplements OpenFGA's own decision logs with
     # app-level context — same request, the app's interpretation).
     ACCESS_DENIED = "access.denied"

@@ -180,6 +180,19 @@ The algorithm in `oidc.py:_validate_token`. Any resource server — product API,
 
 Two distinct settings (`config.py`): `keycloak_issuer` (browser-facing; what `iss` must equal) and `keycloak_internal_issuer` (in-network service DNS; signing keys only). The module docstring calls this "the single most common cause of 'works on localhost, breaks in compose' bugs," and the mismatch error names the fix. In tailnet/TLS mode Keycloak runs under an `/auth` path prefix, so **both** issuers carry it: internal `http://keycloak:8080/auth`, public `https://<host>/auth/realms/<realm>`.
 
+### 5.1a Two issuers (amendment, D7 = A — 2026-07-24)
+
+With the D4 mint shipped, the platform has **two token issuers**, selected by the `iss` claim:
+
+| `iss` | Token | JWKS source |
+|---|---|---|
+| the Keycloak public issuer (§5.1) | login tokens | Keycloak JWKS (internal issuer URL) |
+| `urn:asunset:sessions:<realm>` (or `SESSION_TOKEN_ISSUER`) | agent session tokens (`typ: asunset-session`) | `GET /platform/sessions/jwks` on the platform API (in-network) |
+
+A validator reads the **unverified** `iss` only to select which path to run; the selected path then verifies everything — including `iss` — cryptographically. All other rules are identical across both paths: RS256 only, the five required claims, and per-RS `aud` validation (session tokens carry an `aud` *subset*, so a resource server absent from the subset rejects the token exactly as in §3/D6). Session tokens additionally require `sid`, `typ = asunset-session`, and an `act.sub` of the form `agent:<agent_id>`; their `sub` is **always the human** (D1), and asunset builds their `Principal` with an **empty realm-role set** — agent sessions never wield `platform_admin`/`platform_support`.
+
+The token alone is never sufficient for a session: the `agent_session` row (revocation/expiry state, grant subset) is re-read on every request, and effective permission is *grant subset ∩ the human's live permissions* (see `docs/session-token-mint-spec.md`).
+
 ### 5.2 Failure modes are distinguishable
 
 All `401`, distinct messages: `malformed token`, `token missing kid`, `signing key not found in JWKS`, `token expired`, `wrong audience`, `issuer mismatch — check KEYCLOAK_PUBLIC_URL matches what the browser uses`.
@@ -295,7 +308,9 @@ Two notes for consumers:
 
 ## 9. Per-session scope-down
 
-**asunset has no per-session scope-down mechanism today.** Verified negatives at `fb4e995`:
+> **Update 2026-07-24:** the D4 mint now exists — `POST /platform/sessions` issues scoped agent session tokens per `docs/session-token-mint-spec.md`, validated per §5.1a. The analysis below described the pre-mint state and remains accurate for **login tokens**, which still carry the user's full authority.
+
+**Login tokens have no scope-down.** Verified negatives at `fb4e995`:
 
 - **No OAuth scopes in play.** `clientScopes` is `[]`; neither client declares `defaultClientScopes`; nothing in the auth path reads a `scope` claim. (The SPA requests `openid profile email` — standard OIDC identity scopes, which carry no authorization meaning here.)
 - **No token exchange.** `TOKEN_EXCHANGE` appears in the realm export only as an enabled *audit event type*, not as an enabled Keycloak feature — it is a preview feature requiring explicit activation, and nothing activates it.
