@@ -74,6 +74,9 @@ services:
         VITE_KEYCLOAK_URL: https://${TLS_AUTH_HOST}
         VITE_KEYCLOAK_REALM: ${KEYCLOAK_REALM}
         VITE_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_WEB_CLIENT_ID}
+    environment:
+      # Per-service hostnames: CSP must allow the auth + api origins.
+      CSP_EXTRA_ORIGINS: https://${TLS_AUTH_HOST} https://${TLS_API_HOST}
     ports: !reset []
 
   # The script (mounted in the base) reads WEB_BASE_URL and rewrites

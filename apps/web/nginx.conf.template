@@ -1,0 +1,50 @@
+# Rendered by the nginx image's envsubst entrypoint (templates/*.template
+# → conf.d/). Only ${CSP_EXTRA_ORIGINS} is substituted from env; nginx's
+# own $vars are untouched (the entrypoint substitutes exported env vars
+# only).
+#
+# A7 baseline CSP — the actual XSS control backing the in-memory token
+# posture (no storage choice protects an active session; this does).
+# ${CSP_EXTRA_ORIGINS} lists cross-origin Keycloak/API bases and is
+# EMPTY in single-hostname modes (tailscale: everything on one origin);
+# plain/TLS modes set it in compose. style 'unsafe-inline' is required
+# by runtime-injected component styles (sonner et al.).
+#
+# NB: nginx `add_header` inheritance — a location with ANY add_header of
+# its own inherits NONE from the server block, so the security headers
+# are repeated in every location that sets Cache-Control. Removing them
+# from a location silently strips the CSP there.
+
+server {
+  listen 80;
+  server_name _;
+
+  root /usr/share/nginx/html;
+  index index.html;
+
+  add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ${CSP_EXTRA_ORIGINS}; frame-src 'self' ${CSP_EXTRA_ORIGINS}; object-src 'none'; base-uri 'self'; frame-ancestors 'self'" always;
+  add_header X-Content-Type-Options "nosniff" always;
+  add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+  # SPA fallback: all client-side routes resolve to index.html.
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+
+  # Cache assets aggressively; Vite hashes filenames.
+  location /assets/ {
+    expires 1y;
+    add_header Cache-Control "public, immutable";
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ${CSP_EXTRA_ORIGINS}; frame-src 'self' ${CSP_EXTRA_ORIGINS}; object-src 'none'; base-uri 'self'; frame-ancestors 'self'" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+  }
+
+  # No cache on the entry doc so the app picks up new hashed bundle names.
+  location = /index.html {
+    add_header Cache-Control "no-cache";
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ${CSP_EXTRA_ORIGINS}; frame-src 'self' ${CSP_EXTRA_ORIGINS}; object-src 'none'; base-uri 'self'; frame-ancestors 'self'" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+  }
+}

@@ -82,6 +82,9 @@ services:
         VITE_KEYCLOAK_URL: https://${TAILSCALE_HOST}/auth
         VITE_KEYCLOAK_REALM: ${KEYCLOAK_REALM}
         VITE_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_WEB_CLIENT_ID}
+    environment:
+      # Single hostname: Keycloak/API are same-origin, CSP needs no extras.
+      CSP_EXTRA_ORIGINS: ""
     ports: !reset []
 
   # The script (mounted in the base) reads KC_AUTH_URL + WEB_BASE_URL.

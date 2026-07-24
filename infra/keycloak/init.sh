@@ -70,8 +70,10 @@ echo "keycloak-init: asunset-api service account has manage-users"
   -s "otpPolicyAlgorithm=HmacSHA1" \
   -s "otpPolicyDigits=6" \
   -s "otpPolicyPeriod=30" \
-  -s "otpPolicyLookAheadWindow=1"
-echo "keycloak-init: realm session + OTP policy updated"
+  -s "otpPolicyLookAheadWindow=1" \
+  -s "revokeRefreshToken=true" \
+  -s "refreshTokenMaxReuse=0"
+echo "keycloak-init: realm session + OTP + refresh-rotation policy updated"
 
 # --- asunset-web: rewrite URIs to deployment hostname -------------------
 # The realm export ships dev-default URIs (http://localhost:3000 +

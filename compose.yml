@@ -280,6 +280,10 @@ services:
       VITE_RESOURCE_NEW_LABEL: ${VITE_RESOURCE_NEW_LABEL}
       VITE_RESOURCE_EMPTY_LABEL: ${VITE_RESOURCE_EMPTY_LABEL}
       VITE_RESOURCE_SHARE_DESC: ${VITE_RESOURCE_SHARE_DESC}
+      # Cross-origin bases allowed by the CSP (nginx.conf.template).
+      # Plain-mode default: Keycloak + API on localhost. Single-hostname
+      # modes override to empty; TLS mode lists its per-service hosts.
+      CSP_EXTRA_ORIGINS: ${CSP_EXTRA_ORIGINS:-http://localhost:8080 http://localhost:8000}
     restart: unless-stopped
     depends_on:
       api:

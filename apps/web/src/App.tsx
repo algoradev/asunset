@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { useAuth } from "react-oidc-context";
 import { useQuery } from "@tanstack/react-query";
 
@@ -46,8 +46,31 @@ import { useIdleLogout } from "./lib/useIdleLogout";
 export default function App() {
   const auth = useAuth();
   const { t } = useT();
+  // Tokens live in memory only (A7), so a reload starts token-less even
+  // when Keycloak's httpOnly SSO cookie still holds a live session. Try
+  // ONE silent signin (prompt=none iframe rides that cookie) before
+  // showing the login form — this is what makes reload/multi-tab UX
+  // survive the in-memory posture. "failed" → genuinely logged out.
+  const [silent, setSilent] = useState<"pending" | "trying" | "failed">(
+    "pending",
+  );
 
-  if (auth.isLoading) return <CenteredSpinner label={t("common.loading")} />;
+  useEffect(() => {
+    if (auth.isLoading || auth.isAuthenticated || auth.activeNavigator) return;
+    if (silent !== "pending") return;
+    // A redirect callback in flight (?code=...) is handled by the
+    // provider — don't race it with an iframe attempt.
+    if (new URLSearchParams(window.location.search).has("code")) return;
+    setSilent("trying");
+    auth
+      .signinSilent()
+      .then((user) => setSilent(user ? "pending" : "failed"))
+      .catch(() => setSilent("failed"));
+  }, [auth, silent]);
+
+  if (auth.isLoading || silent === "trying") {
+    return <CenteredSpinner label={t("common.loading")} />;
+  }
 
   if (!auth.isAuthenticated) {
     return (

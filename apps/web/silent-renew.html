@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>silent renew</title>
+  </head>
+  <body>
+    <!-- Loaded only inside the hidden OIDC silent-renew iframe.
+         Completes the prompt=none code exchange and hands the result
+         back to the parent window's UserManager. -->
+    <script type="module" src="/src/silent-renew.ts"></script>
+  </body>
+</html>
