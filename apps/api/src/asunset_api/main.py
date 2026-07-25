@@ -94,7 +94,12 @@ def create_app() -> FastAPI:
             all_ok = False
 
         try:
-            async with httpx.AsyncClient(timeout=3.0) as client:
+            # OpenFGA runs with preshared-key auth — an unauthenticated
+            # probe 401s and reports a healthy server as failed.
+            async with httpx.AsyncClient(
+                timeout=3.0,
+                headers={"Authorization": f"Bearer {settings.openfga_api_key}"},
+            ) as client:
                 resp = await client.get(f"{settings.openfga_api_url}/stores")
                 resp.raise_for_status()
             checks["openfga"] = {"status": "ok"}
