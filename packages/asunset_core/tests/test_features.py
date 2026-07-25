@@ -62,7 +62,7 @@ def test_codegen_python_and_ts() -> None:
     m = parse_manifest(_valid())
     py = python_module(m)
     assert 'REPORTS_EXPORT = "reports.export"' in py
-    assert "class Feature(str, Enum):" in py
+    assert "class Feature(StrEnum):" in py
     ts = ts_module(m)
     assert '"reports.export"' in ts
     assert "export type FeatureKey" in ts

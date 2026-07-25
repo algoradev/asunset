@@ -23,6 +23,7 @@ from asunset_api.routers.deps import (
     get_db,
     require_feature,
 )
+from asunset_api.features_gen import Feature
 from asunset_api.routers.schemas import AuditEventOut
 
 # The reference feature gate (feature spec §6): audit.view defaults to
@@ -32,7 +33,7 @@ from asunset_api.routers.schemas import AuditEventOut
 router = APIRouter(
     prefix="/audit",
     tags=["audit"],
-    dependencies=[Depends(require_feature("audit.view"))],
+    dependencies=[Depends(require_feature(Feature.AUDIT_VIEW))],
 )
 
 

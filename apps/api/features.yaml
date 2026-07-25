@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../packages/asunset_core/src/asunset_core/features/features.schema.json
 # Feature manifest — the versioned source of truth for what features
 # exist in this deployment (docs/feature-permissions-spec.md §4).
 # Reconciled into FGA tuples at api startup and after /platform/bootstrap;

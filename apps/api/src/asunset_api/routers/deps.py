@@ -261,6 +261,11 @@ def require_feature(key: str):  # noqa: ANN201 — returns a FastAPI dependency
                     dependencies=[Depends(require_feature("reports.export"))])
     """
 
+    # Accept plain strings AND str-enums (generated Feature constants).
+    # NB: for `class X(str, Enum)` an f-string renders "X.MEMBER", not the
+    # value — normalizing here prevents a gate that validates (set
+    # membership works by value) yet checks a nonexistent FGA object.
+    key = getattr(key, "value", key)
     DECLARED_FEATURE_GATES.add(key)
 
     async def _dep(

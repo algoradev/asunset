@@ -24,10 +24,10 @@ def python_module(manifest: FeatureManifest) -> str:
     lines = [
         f'"""{_HEADER}"""',
         "",
-        "from enum import Enum",
+        "from enum import StrEnum",
         "",
         "",
-        "class Feature(str, Enum):",
+        "class Feature(StrEnum):",
     ]
     if not manifest.features:
         lines.append("    pass")
@@ -63,3 +63,32 @@ def main(argv: list[str] | None = None) -> None:
 
 if __name__ == "__main__":
     main()
+
+
+def assert_generated_current(
+    manifest_path: str, *, py_path: str | None = None, ts_path: str | None = None
+) -> None:
+    """Raise AssertionError if generated files lag the manifest — drop
+    into any consumer test:
+
+        def test_feature_codegen_current():
+            assert_generated_current("features.yaml",
+                                     py_path="src/product_api/features_gen.py",
+                                     ts_path="apps/web/src/config/features.gen.ts")
+    """
+    manifest = load_manifest(manifest_path)
+    regen_cmd = "python -m asunset_core.features.codegen"
+    if py_path is not None:
+        expected = python_module(manifest)
+        actual = Path(py_path).read_text() if Path(py_path).exists() else "<missing>"
+        assert actual == expected, (
+            f"{py_path} is stale vs {manifest_path} — regenerate with: "
+            f"{regen_cmd} {manifest_path} --py {py_path}"
+        )
+    if ts_path is not None:
+        expected = ts_module(manifest)
+        actual = Path(ts_path).read_text() if Path(ts_path).exists() else "<missing>"
+        assert actual == expected, (
+            f"{ts_path} is stale vs {manifest_path} — regenerate with: "
+            f"{regen_cmd} {manifest_path} --ts {ts_path}"
+        )

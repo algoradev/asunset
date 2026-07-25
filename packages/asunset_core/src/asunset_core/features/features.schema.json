@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://asunset.dev/schemas/features.schema.json",
+  "title": "asunset feature manifest (features.yaml)",
+  "description": "Versioned source of truth for what features exist in a deployment (docs/feature-permissions-spec.md). Keys are FGA object ids; grants are DEFAULT usersets — direct user/team grants are runtime data, never manifest entries.",
+  "type": "object",
+  "required": ["features"],
+  "additionalProperties": false,
+  "properties": {
+    "features": {
+      "type": "object",
+      "description": "Map of feature key → definition. Key format: domain.verb (lowercase, dot-separated); the key IS the FGA object id (feature:<key>). Keys never name object instances — per-object questions belong to resource relations.",
+      "propertyNames": {
+        "pattern": "^[a-z0-9]+(\\.[a-z0-9_]+)+$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "Operator-facing description of what the feature gates."
+          },
+          "enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "false = declarative DECOMMISSION: reconcile sweeps EVERY grant (defaults AND runtime); runtime grants do not return on re-enable. For a reversible incident pause use the freeze API (v1.1), not this."
+          },
+          "grants": {
+            "type": "array",
+            "default": [],
+            "description": "DEFAULT grants as usersets. Empty = the runtime-only pattern: declared, gate-validated, granted to no one by default.",
+            "items": {
+              "type": "string",
+              "oneOf": [
+                {
+                  "enum": ["organization#member", "organization#admin"],
+                  "description": "Platform org usersets (resolved against the instance's single org at reconcile time)."
+                },
+                {
+                  "pattern": "^role:[a-z0-9][a-z0-9_-]{0,63}#assignee$",
+                  "description": "A product-defined custom role's assignees (role:<name>#assignee)."
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

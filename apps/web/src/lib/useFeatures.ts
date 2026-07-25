@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "react-oidc-context";
 
 import { api } from "@/api";
+import type { FeatureKey } from "@/config/features.gen";
 
 /**
  * Feature keys the signed-in user may use (GET /platform/me/features).
@@ -26,7 +27,8 @@ export function useFeatures() {
   const set = new Set(q.data ?? []);
   return {
     features: set,
-    has: (key: string) => set.has(key),
+    // Typed against the generated union: a typo'd key is a COMPILE error.
+    has: (key: FeatureKey) => set.has(key),
     isLoading: q.isLoading,
   };
 }
