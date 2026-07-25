@@ -45,7 +45,34 @@ class OrgContext:
         return self.role == MemberRole.admin
 
 
+def _select_membership(memberships: list[OrgMember], header_value: str | None) -> OrgMember:
+    """Pick the caller's org membership, honoring an explicit X-Org-Id.
+
+    D5 (identity contract §11): one org per instance remains the
+    deployment model, so with no header this is memberships[0] exactly
+    as before — inert on every current instance. When the header IS
+    sent, it must name an org the caller actually belongs to (403
+    otherwise), which is what makes multi-org later "send the header"
+    instead of a migration.
+    """
+    if header_value:
+        try:
+            wanted = UUID(header_value)
+        except ValueError as e:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "X-Org-Id must be a UUID"
+            ) from e
+        for m in memberships:
+            if m.org_id == wanted:
+                return m
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "not a member of the requested org"
+        )
+    return memberships[0]
+
+
 async def get_current_org(
+    request: Request,
     principal: Principal = Depends(get_current_principal),
 ) -> OrgContext:
     """Resolve which org this principal operates in.
@@ -78,10 +105,7 @@ async def get_current_org(
             "user has no org membership — contact an admin",
         )
 
-    # Template assumption: one org per instance. If the user somehow has
-    # multiple memberships, pick the first and log — future multi-client
-    # instances will want an X-Org-Id header to disambiguate.
-    m = memberships[0]
+    m = _select_membership(list(memberships), request.headers.get("x-org-id"))
     return OrgContext(org_id=m.org_id, role=m.role)
 
 

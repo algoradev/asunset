@@ -2,7 +2,8 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 import httpx
-from fastapi import FastAPI, Response, status
+from fastapi import FastAPI, Request, Response, status
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
@@ -64,6 +65,14 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
         expose_headers=["X-Correlation-Id"],
     )
+
+    # Agent-session denials on administrative surfaces
+    # (SessionScopedAuthorizer.write/read_tuples) raise PermissionError —
+    # a clean 403, not an unhandled 500. Any consumer main.py mounting
+    # platform routers should carry the same handler.
+    @app.exception_handler(PermissionError)
+    async def _permission_error_403(request: Request, exc: PermissionError) -> Response:
+        return JSONResponse(status_code=403, content={"detail": str(exc)})
 
     @app.get("/healthz", tags=["health"])
     async def healthz() -> dict[str, str]:

@@ -73,6 +73,14 @@ def create_app() -> FastAPI:
         expose_headers=["X-Correlation-Id"],
     )
 
+    # Agent-session denials on administrative surfaces raise
+    # PermissionError — map to a clean 403 (mirrors asunset_api.main).
+    @app.exception_handler(PermissionError)
+    async def _permission_error_403(request, exc: PermissionError):
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(status_code=403, content={"detail": str(exc)})
+
     @app.get("/healthz", tags=["health"])
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}
