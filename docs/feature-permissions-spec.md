@@ -1,6 +1,6 @@
 # Feature-Level Permissions — Design Spec
 
-**Status:** SPEC — approved direction (Avi, 2026-07-23); not yet implemented.
+**Status:** IMPLEMENTED v1 (25e24d3) + feat-ops 1–3 (gate validation, reconcile endpoint, enabled:false kill switch). §10 (runtime-grants surface) is the planned v1.1.
 **Depends on:** the identity contract (`docs/identity-contract.md`, rev 3) — in particular D1's human/machine split and the claims-split rule (permissions are never token claims).
 **Supersedes:** the realm-role shortcut pattern (e.g. wirebit CRM v1's `crm_support` realm roles) for product feature gating.
 
@@ -130,3 +130,40 @@ Denials are audited with the standard actor snapshot — feature denials become 
 4. `require_feature` dep + `GET /me/features` + `useFeatures()` hook.
 5. `.fga.yaml` test harness in CI.
 6. Wire one real feature through the Notes demo end-to-end as the reference; update `consuming-template` with a worked example.
+
+---
+
+## 10. Feature operations (v1.1) — runtime-grants surface [PLANNED]
+
+The materiality review (Avi, 2026-07-25) found the v1 gap: everything
+that changes at *runtime* — role membership, per-team enablement, user
+exceptions — has no audited surface; operators would fall back to raw
+tuple writes, bypassing audit. v1.1 closes it. Shipped alongside it
+already (feat-ops 1–3): startup gate-key validation
+(`FeatureGateMismatch` fails the boot on a typo'd `require_feature`
+key), `POST /platform/features/reconcile` (apply manifest edits without
+a restart, audited as `features.reconciled`), and the `enabled: false`
+declarative kill switch (sweeps ALL grants on the feature — defaults
+and runtime — idempotently; runtime grants do not return on re-enable).
+
+### Endpoints (org-admin gated unless noted; every mutation audited)
+
+| Verb | Path | Effect |
+|---|---|---|
+| GET | `/platform/features` | Manifest view + per-feature grant listing (defaults, roles, teams, users) — the operator visibility surface |
+| POST | `/platform/roles/{role}/assignees` | `user:<sub> assignee role:<role>` (creates the role object implicitly; `role.assigned`) |
+| DELETE | `/platform/roles/{role}/assignees/{user_id}` | revoke (`role.unassigned`) |
+| GET | `/platform/roles` | roles + assignees (read_tuples) |
+| POST | `/platform/features/{key}/grants` | body `{user_id}` or `{team_id}` → runtime grant (`feature.granted`) |
+| DELETE | `/platform/features/{key}/grants` | same body → revoke (`feature.revoked`) |
+
+Rules: `{key}` must exist in the manifest (422 otherwise — no shadow
+features); disabled features refuse grants; dual-write ordering and
+`tolerate_existing` per the platform discipline; audit payloads carry
+grantee + grantor snapshots. New `EventType` members: `ROLE_ASSIGNED`,
+`ROLE_UNASSIGNED`, `FEATURE_GRANTED`, `FEATURE_REVOKED`.
+
+Out of scope for v1.1: an admin UI (API-first; UI is a product
+decision), percentage rollouts / per-request flags (this is a
+permission system, not a flag service — a deliberate distinction), and
+conditional-tuple trials (rides the D4 end-state work).

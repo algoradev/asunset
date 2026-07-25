@@ -35,6 +35,9 @@ class FeatureReconcileReport:
     added: list[tuple[str, str, str]] = field(default_factory=list)
     orphans: list[tuple[str, str, str]] = field(default_factory=list)
     pruned: list[tuple[str, str, str]] = field(default_factory=list)
+    # Grants removed because their feature is explicitly `enabled: false`
+    # — always removed (declared intent), unlike orphans (flag-first).
+    disabled: list[tuple[str, str, str]] = field(default_factory=list)
 
     @property
     def clean(self) -> bool:
@@ -60,16 +63,40 @@ async def reconcile_features(
     # Known limitation (documented): a role-granted tuple on a fully
     # removed feature is invisible here — flag it manually if a feature
     # with role grants is ever deleted from the manifest.
+    report = FeatureReconcileReport()
+
+    # Explicitly disabled features (enabled: false) FIRST: remove EVERY
+    # grant on them — defaults AND runtime user/team grants. This is the
+    # declarative kill switch; the operator wrote the intent into the
+    # manifest, so unlike orphans there is no flag-first stage. Runs
+    # before discovery so killed grants can't double-report as orphans.
+    for key in sorted(manifest.disabled_keys):
+        killed = await authorizer.read_tuples(object=f"feature:{key}")
+        if not killed:
+            continue
+        await authorizer.write(
+            deletes=[Tuple(user=t.user, relation=t.relation, object=t.object) for t in killed]
+        )
+        for t in killed:
+            report.disabled.append((t.user, t.relation, t.object))
+            log.warning(
+                "features.disabled_grant_removed",
+                user=t.user, relation=t.relation, object=t.object,
+                detail="feature is enabled:false in the manifest",
+            )
+
+    disabled_objects = {f"feature:{k}" for k in manifest.disabled_keys}
     current: set[tuple[str, str, str]] = set()
     for f in manifest.features:
+        if not f.enabled:
+            continue
         for t in await authorizer.read_tuples(object=f"feature:{f.key}"):
             current.add((t.user, t.relation, t.object))
     for userset in (f"organization:{org_id}#member", f"organization:{org_id}#admin"):
         for t in await authorizer.read_tuples(user=userset, object="feature:"):
-            current.add((t.user, t.relation, t.object))
+            if t.object not in disabled_objects:
+                current.add((t.user, t.relation, t.object))
     current_managed = {c for c in current if _is_managed(c[0])}
-
-    report = FeatureReconcileReport()
 
     missing = desired - current_managed
     if missing:
@@ -107,5 +134,6 @@ async def reconcile_features(
         added=len(report.added),
         orphans=len(report.orphans),
         pruned=len(report.pruned),
+        disabled=len(report.disabled),
     )
     return report

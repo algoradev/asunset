@@ -66,3 +66,20 @@ def test_codegen_python_and_ts() -> None:
     ts = ts_module(m)
     assert '"reports.export"' in ts
     assert "export type FeatureKey" in ts
+
+
+def test_enabled_flag_parsed_and_excluded_from_desired() -> None:
+    raw = _valid()
+    raw["features"]["reports.export"]["enabled"] = False
+    m = parse_manifest(raw)
+    assert m.disabled_keys == {"reports.export"}
+    tuples = m.desired_tuples(ORG)
+    assert not any(o == "feature:reports.export" for (_, _, o) in tuples)
+    assert len(tuples) == 2
+
+
+def test_enabled_must_be_boolean() -> None:
+    raw = _valid()
+    raw["features"]["reports.export"]["enabled"] = "yes"
+    with pytest.raises(ManifestError):
+        parse_manifest(raw)

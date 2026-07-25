@@ -41,6 +41,9 @@ class EventType(str, enum.Enum):
     TEAM_MEMBER_REMOVED = "team.member_removed"
     TEAM_MEMBER_ROLE_CHANGED = "team.member_role_changed"
 
+    # Feature-registration lifecycle (feature spec / feat-ops).
+    FEATURES_RECONCILED = "features.reconciled"
+
     # Agent sessions (D4 mint) — lifecycle of scoped, attributable
     # agent credentials derived from a human login.
     SESSION_MINTED = "session.minted"

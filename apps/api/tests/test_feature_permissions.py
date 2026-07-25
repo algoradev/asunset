@@ -139,3 +139,52 @@ async def test_orphan_flagged_then_pruned_and_runtime_grants_untouched(
         ]
     )
     await reconcile_features(authz, MANIFEST, ORG_ID)
+
+
+async def test_enabled_false_is_a_kill_switch(authz: OpenFGAAuthorizer) -> None:
+    """enabled:false sweeps EVERY grant — defaults AND runtime user
+    grants — without prune, and they stay gone until re-granted."""
+    await reconcile_features(authz, MANIFEST, ORG_ID)
+    await authz.write(
+        writes=[Tuple(user=OUTSIDER, relation="can_use", object="feature:audit.view")],
+        tolerate_existing=True,
+    )
+    assert await authz.check(MEMBER, "can_use", "feature:audit.view")
+
+    killed = parse_manifest(
+        {
+            "features": {
+                "audit.view": {"grants": ["organization#member"], "enabled": False},
+                "billing.manage": {"grants": ["organization#admin"]},
+                "compliance.review": {"grants": ["role:compliance_reviewer#assignee"]},
+            }
+        }
+    )
+    report = await reconcile_features(authz, killed, ORG_ID)
+    # Both the default grant and the runtime user grant were swept; the
+    # sweep is not double-reported as an orphan.
+    assert len(report.disabled) == 2 and report.orphans == []
+    assert not await authz.check(MEMBER, "can_use", "feature:audit.view")
+    assert not await authz.check(OUTSIDER, "can_use", "feature:audit.view")
+    # Other features untouched.
+    assert await authz.check(ADMIN, "can_use", "feature:billing.manage")
+
+    # Re-enable: default grant returns; the runtime grant does NOT
+    # (documented — it was operator data and the operator killed it).
+    report = await reconcile_features(authz, MANIFEST, ORG_ID)
+    assert (
+        f"organization:{ORG_ID}#member", "can_use", "feature:audit.view"
+    ) in report.added
+    assert await authz.check(MEMBER, "can_use", "feature:audit.view")
+    assert not await authz.check(OUTSIDER, "can_use", "feature:audit.view")
+
+
+async def test_kill_switch_is_idempotent(authz: OpenFGAAuthorizer) -> None:
+    killed = parse_manifest(
+        {"features": {"audit.view": {"grants": ["organization#member"], "enabled": False}}}
+    )
+    first = await reconcile_features(authz, killed, ORG_ID)
+    second = await reconcile_features(authz, killed, ORG_ID)
+    assert second.disabled == [] and second.added == []
+    # restore
+    await reconcile_features(authz, MANIFEST, ORG_ID)

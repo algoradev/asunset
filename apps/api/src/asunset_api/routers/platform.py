@@ -405,3 +405,57 @@ async def my_features(
     session's declared grant subset."""
     objs = await authorizer.list_objects(principal.fga_user(), "can_use", "feature")
     return sorted(o.removeprefix("feature:") for o in objs)
+
+
+class FeatureReconcileIn(BaseModel):
+    prune: bool = False
+
+
+class FeatureReconcileOut(BaseModel):
+    added: int
+    orphans: list[str]
+    pruned: int
+    disabled: int
+
+
+@router.post("/features/reconcile", response_model=FeatureReconcileOut)
+async def reconcile_features_endpoint(
+    body: FeatureReconcileIn,
+    principal: Principal = Depends(require_platform_admin),
+    authorizer: Authorizer = Depends(get_authorizer),
+    audit: AuditSink = Depends(get_audit_sink),
+) -> FeatureReconcileOut:
+    """Apply features.yaml on demand — manifest edits (grants changed,
+    a feature disabled) take effect without an api restart (feat-ops 2).
+    Orphans are reported (as `user relation object` strings) and removed
+    only when prune=true; enabled:false features are always swept."""
+    from asunset_api.config import get_settings as _gs
+    from asunset_api.features_boot import run_feature_reconcile
+
+    try:
+        report = await run_feature_reconcile(authorizer, _gs(), prune=body.prune)
+    except Exception as e:  # ManifestError / gate mismatch → operator-visible
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    if report is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "nothing to reconcile — no manifest configured or no org yet",
+        )
+    await audit.emit(
+        EventType.FEATURES_RECONCILED,
+        action="reconcile",
+        resource_type="feature_manifest",
+        payload={
+            "added": len(report.added),
+            "orphans": len(report.orphans),
+            "pruned": len(report.pruned),
+            "disabled": len(report.disabled),
+            "prune_requested": body.prune,
+        },
+    )
+    return FeatureReconcileOut(
+        added=len(report.added),
+        orphans=[" ".join(t) for t in report.orphans],
+        pruned=len(report.pruned),
+        disabled=len(report.disabled),
+    )

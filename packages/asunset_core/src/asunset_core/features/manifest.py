@@ -51,6 +51,12 @@ class FeatureDef:
     key: str
     description: str
     grants: tuple[str, ...]
+    # Declarative kill switch: `enabled: false` keeps the feature
+    # DECLARED (gate-key validation still passes, the intent is visible
+    # in the diff) while reconcile removes EVERY grant on it — defaults
+    # AND runtime user/team grants. Runtime grants do not come back on
+    # re-enable; they were operator data and the operator killed them.
+    enabled: bool = True
 
 
 @dataclass(frozen=True)
@@ -61,11 +67,18 @@ class FeatureManifest:
     def keys(self) -> set[str]:
         return {f.key for f in self.features}
 
+    @property
+    def disabled_keys(self) -> set[str]:
+        return {f.key for f in self.features if not f.enabled}
+
     def desired_tuples(self, org_id: UUID | str) -> set[tuple[str, str, str]]:
         """The (user, relation, object) set the manifest declares, with
-        org usersets resolved against THE org (one per instance)."""
+        org usersets resolved against THE org (one per instance).
+        Disabled features contribute nothing."""
         out: set[tuple[str, str, str]] = set()
         for f in self.features:
+            if not f.enabled:
+                continue
             for grant in f.grants:
                 if grant in ORG_GRANTS:
                     relation = grant.split("#", 1)[1]
@@ -100,11 +113,15 @@ def parse_manifest(raw: dict) -> FeatureManifest:
                     f"{', '.join(ORG_GRANTS)}, or role:<name>#assignee "
                     f"(direct user/team grants are runtime data, not manifest entries)"
                 )
+        enabled = body.get("enabled", True)
+        if not isinstance(enabled, bool):
+            raise ManifestError(f"feature {key!r} `enabled` must be a boolean")
         defs.append(
             FeatureDef(
                 key=str(key),
                 description=str(body.get("description", "")),
                 grants=tuple(str(g) for g in grants),
+                enabled=enabled,
             )
         )
     return FeatureManifest(features=tuple(defs))

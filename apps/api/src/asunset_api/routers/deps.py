@@ -242,6 +242,12 @@ def require_org_admin(org: OrgContext = Depends(get_current_org)) -> OrgContext:
     return org
 
 
+# Every gate declared via require_feature registers here; startup
+# validates the set against the manifest so a typo'd key is a loud boot
+# failure, not a permanent silent 403 (feature spec §6, feat-ops 1).
+DECLARED_FEATURE_GATES: set[str] = set()
+
+
 def require_feature(key: str):  # noqa: ANN201 — returns a FastAPI dependency
     """Gate an endpoint on feature-level permission (feature spec §6).
 
@@ -254,6 +260,8 @@ def require_feature(key: str):  # noqa: ANN201 — returns a FastAPI dependency
         @router.get("/export",
                     dependencies=[Depends(require_feature("reports.export"))])
     """
+
+    DECLARED_FEATURE_GATES.add(key)
 
     async def _dep(
         principal: Principal = Depends(get_current_principal),
