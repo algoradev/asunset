@@ -118,6 +118,13 @@ async def bootstrap_instance(
                 permission="platform_admin",
             )
 
+        # Org now exists — apply the feature manifest immediately so
+        # default grants are live before the first user request.
+        from asunset_api.config import get_settings as _gs
+        from asunset_api.features_boot import reconcile_features_startup
+
+        await reconcile_features_startup(authorizer, _gs())
+
         return BootstrapOut(org_id=org.id)
 
 
@@ -382,3 +389,19 @@ async def revoke_session(
             resource_label=row.label,
             payload={"agent_id": row.agent_id},
         )
+
+
+# --- feature-level permissions (docs/feature-permissions-spec.md §6) ------
+
+
+@router.get("/me/features", response_model=list[str])
+async def my_features(
+    principal: Principal = Depends(get_current_principal),
+    authorizer: Authorizer = Depends(get_authorizer),
+) -> list[str]:
+    """Feature keys the caller may use — drives frontend menu/route
+    gating (UX only; the API-side require_feature check is the control).
+    For agent sessions the list is additionally filtered by the
+    session's declared grant subset."""
+    objs = await authorizer.list_objects(principal.fga_user(), "can_use", "feature")
+    return sorted(o.removeprefix("feature:") for o in objs)

@@ -29,6 +29,7 @@ COPY apps/api/pyproject.toml apps/api/README.md ./
 COPY apps/api/src/ ./src/
 COPY apps/api/alembic.ini ./
 COPY apps/api/alembic/ ./alembic/
+COPY apps/api/features.yaml ./
 COPY apps/api/entrypoint.sh ./
 RUN chmod +x entrypoint.sh
 

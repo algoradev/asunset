@@ -187,6 +187,9 @@ export type NoteGrant = {
 export const api = {
   // platform
   me: (f: Fetcher) => request<Me>("/platform/me", {}, f),
+  // Feature keys the caller may use — drives menu/route gating (UX
+  // only; the API-side require_feature check is the control).
+  meFeatures: (f: Fetcher) => request<string[]>("/platform/me/features", {}, f),
   bootstrap: (f: Fetcher, body: { org_name: string }) =>
     request<{ org_id: string }>(
       "/platform/bootstrap",

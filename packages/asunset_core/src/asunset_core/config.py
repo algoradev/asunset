@@ -96,6 +96,11 @@ class CoreSettings(BaseSettings):
     # subsets.
     keycloak_extra_audiences: str = ""
 
+    # Path to the feature manifest (docs/feature-permissions-spec.md).
+    # Empty disables feature reconciliation entirely — deployments
+    # without feature-level permissions pay nothing.
+    features_manifest: str = ""
+
     # --- agent session tokens (D4 mint; docs/session-token-mint-spec.md) --
     # base64-encoded RSA private key PEM. Empty = ephemeral per-process
     # key (dev only — sessions die on restart; the signer logs a warning).

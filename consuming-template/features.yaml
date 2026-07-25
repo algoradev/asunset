@@ -1,0 +1,19 @@
+# Feature manifest — versioned source of truth for what features exist
+# in YOUR product (docs/feature-permissions-spec.md in vendor/asunset).
+#
+# Wire-up:
+#   1. fga_model.py: build_model([*FEATURE_PLATFORM_TYPES, YOUR_TYPES])
+#   2. Settings: features_manifest = "features.yaml"
+#   3. Reconcile at startup + after bootstrap (see asunset_api.features_boot)
+#   4. Gate endpoints: dependencies=[Depends(require_feature("reports.export"))]
+#   5. Frontend: useFeatures() hook / GET /platform/me/features
+#
+# Grants are DEFAULTS (usersets only): organization#member,
+# organization#admin, or role:<name>#assignee. Direct user grants and
+# per-team grants are runtime tuple writes, never manifest entries.
+# Do NOT mint product realm roles for feature gating — superseded.
+features:
+  reports.export:
+    description: "Export reports to CSV/PDF"
+    grants:
+      - organization#member

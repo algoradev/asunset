@@ -26,6 +26,7 @@ from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from asunset_core.audit.events import EventType
 from asunset_core.audit.sink import AuditSink
 from asunset_core.auth.authorizer import Authorizer
 from asunset_core.auth.oidc import get_current_principal
@@ -239,3 +240,38 @@ def require_org_admin(org: OrgContext = Depends(get_current_org)) -> OrgContext:
     if not org.is_admin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "org admin required")
     return org
+
+
+def require_feature(key: str):  # noqa: ANN201 — returns a FastAPI dependency
+    """Gate an endpoint on feature-level permission (feature spec §6).
+
+    One Authorizer check — `can_use feature:<key>` — so grants defined
+    in features.yaml (or written at runtime) decide access, never role
+    strings. Denials are audited with the standard actor snapshot so
+    feature denials are SIEM-visible like every other authz event.
+
+    Usage:
+        @router.get("/export",
+                    dependencies=[Depends(require_feature("reports.export"))])
+    """
+
+    async def _dep(
+        principal: Principal = Depends(get_current_principal),
+        authz: Authorizer = Depends(get_authorizer),
+        sink: AuditSink = Depends(get_audit_sink),
+    ) -> None:
+        allowed = await authz.check(principal.fga_user(), "can_use", f"feature:{key}")
+        if not allowed:
+            await sink.emit(
+                EventType.ACCESS_DENIED,
+                action="feature_check",
+                resource_type="feature",
+                resource_id=key,
+                permission="can_use",
+                success=False,
+            )
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, f"feature {key} not enabled for this user"
+            )
+
+    return _dep

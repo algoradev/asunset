@@ -17,10 +17,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from asunset_core.auth.principal import Principal
 from asunset_core.auth.oidc import get_current_principal
 from asunset_core.db.models import AuditEvent
-from asunset_api.routers.deps import OrgContext, get_current_org, get_db
+from asunset_api.routers.deps import (
+    OrgContext,
+    get_current_org,
+    get_db,
+    require_feature,
+)
 from asunset_api.routers.schemas import AuditEventOut
 
-router = APIRouter(prefix="/audit", tags=["audit"])
+# The reference feature gate (feature spec §6): audit.view defaults to
+# organization#member in features.yaml, so behavior is unchanged for
+# existing deployments — but access is now a feature grant, revocable
+# and reassignable without touching roles or code.
+router = APIRouter(
+    prefix="/audit",
+    tags=["audit"],
+    dependencies=[Depends(require_feature("audit.view"))],
+)
 
 
 @router.get("/events", response_model=list[AuditEventOut])

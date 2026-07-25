@@ -410,7 +410,10 @@ def _start_keycloak_container() -> tuple[str, int]:
     raise RuntimeError(f"could not resolve published port from: {out!r}")
 
 
-def _wait_keycloak_ready(base_url: str, realm: str, timeout: float = 120.0) -> None:
+def _wait_keycloak_ready(base_url: str, realm: str, timeout: float = 240.0) -> None:
+    # Generous: on a loaded host (live stack + three test containers)
+    # Keycloak's realm import can exceed two minutes; a timeout here
+    # errors 13 tests at once.
     import httpx
 
     deadline = time.monotonic() + timeout

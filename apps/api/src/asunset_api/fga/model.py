@@ -10,7 +10,7 @@ for humans; the JSON form is what gets pinned at bootstrap.
 
 from __future__ import annotations
 
-from asunset_core.fga.model import build_model
+from asunset_core.fga.model import FEATURE_PLATFORM_TYPES, build_model
 
 NOTE_TYPE: dict = {
     "type": "note",
@@ -76,4 +76,6 @@ NOTE_TYPE: dict = {
     },
 }
 
-AUTHORIZATION_MODEL = build_model([NOTE_TYPE])
+# Feature-registration types included: the demo is the reference for
+# feature-level permissions (features.yaml → audit.view gate).
+AUTHORIZATION_MODEL = build_model([*FEATURE_PLATFORM_TYPES, NOTE_TYPE])

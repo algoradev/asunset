@@ -281,6 +281,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pyjwt", extra = ["crypto"] },
+    { name = "pyyaml" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "structlog" },
 ]
@@ -297,6 +298,7 @@ requires-dist = [
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.9" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
     { name = "structlog", specifier = ">=24.4" },
 ]

@@ -1,0 +1,12 @@
+# Feature manifest — the versioned source of truth for what features
+# exist in this deployment (docs/feature-permissions-spec.md §4).
+# Reconciled into FGA tuples at api startup and after /platform/bootstrap;
+# orphaned grants are flagged, never auto-removed.
+#
+# Grants here are DEFAULTS (usersets only). Direct user grants and
+# per-team grants are runtime data — written via the API, not listed here.
+features:
+  audit.view:
+    description: "Read the org's audit trail in the in-app viewer"
+    grants:
+      - organization#member

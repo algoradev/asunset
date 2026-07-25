@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from asunset_core.auth.authorizer import OpenFGAAuthorizer, make_openfga_client
 from asunset_api.config import get_settings
+from asunset_api.features_boot import reconcile_features_startup
 from asunset_api.fga.model import AUTHORIZATION_MODEL
 from asunset_core.fga.bootstrap import bootstrap_openfga
 from asunset_core.logging import configure_logging, get_logger
@@ -39,6 +40,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # the lifetime of the process. CoreSettings drives backend selection
     # (NOTIFIER=log|resend) and the sender + template overrides.
     app.state.email_service = make_email_service(settings)
+
+    # Feature manifest → FGA tuples (feature spec §5). Best-effort at
+    # startup: needs the org to exist, so a pre-bootstrap instance skips
+    # with a log and /platform/bootstrap re-runs it after org creation.
+    await reconcile_features_startup(app.state.authorizer, settings)
 
     yield
 
