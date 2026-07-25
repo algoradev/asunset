@@ -148,7 +148,7 @@ Reviewed adversarially by kestrel (ops), relay (consumer/portability), and junip
 | Verb | Path | Effect |
 |---|---|---|
 | GET | `/platform/features` | Manifest view + per-feature grant listing **with provenance** (juniper #1): origin manifest-default vs runtime, granted_by, granted_at, creating audit event id |
-| POST | `/platform/features/{key}/freeze` · `/unfreeze` | **Incident freeze** (kestrel's headline): deny-all-now, PRESERVES every grant tuple, reversible in one call, runtime-only (no manifest edit), audited. Distinct axis from `enabled: false` = decommission (destructive, deliberate, deploy-time — unchanged) |
+| POST | `/platform/features/{key}/freeze` · `/unfreeze` | **Incident freeze** (kestrel's headline): deny-all-now, PRESERVES every grant tuple, reversible in one call, runtime-only (no manifest edit), audited. Distinct axis from `enabled: false` = decommission (destructive, deliberate, deploy-time — unchanged). **Ships in lockstep with its runbook invocation** (documented command, token custody pre-solved) — endpoint + invocation are one deliverable |
 | POST | `/platform/roles/{role}/assignees` | assign human to custom role (`role.assigned`) |
 | DELETE | `/platform/roles/{role}/assignees/{user_id}` | revoke — **idempotent audited no-op if absent, never 404** (juniper #3: re-runnable runbooks) |
 | GET | `/platform/roles` · `/platform/roles/{role}/assignees` | roles + membership listing (juniper #4: "who holds billing_ops" must not require reading tuples) |
@@ -161,6 +161,8 @@ Rules carried forward: `{key}` must exist in the manifest (no shadow features); 
 - **Close the orphan hole** (juniper #2): a full-sweep reconcile mode that enumerates `feature:*` grants via the runtime-grant bookkeeping (freeze/grant state gives us the object index the FGA Read API can't) and flags any key absent from the manifest — the role-grant-on-removed-feature leak stops being a documented limitation.
 - **Tombstone lifecycle rule** (relay #4, doctrine now, enforced then): feature retirement is a transition, not a disappearance — `enabled: false` → reconcile/sweep → remove the key only when provably grant-free. v1.1's reconcile refuses removing a key that still has discoverable grants.
 - **Codegen in CI** (relay #5): consumers wire the enum/union generation and a generated-files-current check; consuming-template gets the recipe.
+- **`dry_run` doctor reachability** (kestrel DX review): `dry_run` is a read and must be callable by the consumer doctor's instance/service identity — a machine-credential auth path (design item: KC service-account token with a proper audience, or an operator API key) rather than inheriting the mutating endpoint's `platform_admin` bar. Report output deterministically ordered so drift is diffable.
+- **Point-in-time access-matrix export** (kestrel DX review): the live feature → grant → who matrix with provenance, dated, exportable — the compliance-audit artifact. Rides the provenance listing.
 
 ### Doctrine lines for consuming-template docs (juniper, written rules not oral tradition)
 
