@@ -83,7 +83,7 @@ async def _org_id():  # noqa: ANN202 — UUID | None
 
 
 async def run_feature_reconcile(
-    authorizer: Authorizer, settings: Settings, *, prune: bool = False
+    authorizer: Authorizer, settings: Settings, *, prune: bool = False, dry_run: bool = False
 ) -> FeatureReconcileReport | None:
     """Load manifest + resolve org + reconcile. Raises ManifestError /
     RuntimeError for callers that want loud failures (the admin
@@ -102,7 +102,7 @@ async def run_feature_reconcile(
         )
         return None
 
-    return await reconcile_features(authorizer, manifest, org_id, prune=prune)
+    return await reconcile_features(authorizer, manifest, org_id, prune=prune, dry_run=dry_run)
 
 
 async def reconcile_features_startup(authorizer: Authorizer, settings: Settings) -> None:

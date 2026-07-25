@@ -409,6 +409,10 @@ async def my_features(
 
 class FeatureReconcileIn(BaseModel):
     prune: bool = False
+    # Read-only drift assessment: full report, zero writes, no audit
+    # event (it's a read). Consumer doctors consume this instead of
+    # reimplementing the manifest-vs-FGA diff.
+    dry_run: bool = False
 
 
 class FeatureReconcileOut(BaseModel):
@@ -433,7 +437,9 @@ async def reconcile_features_endpoint(
     from asunset_api.features_boot import run_feature_reconcile
 
     try:
-        report = await run_feature_reconcile(authorizer, _gs(), prune=body.prune)
+        report = await run_feature_reconcile(
+            authorizer, _gs(), prune=body.prune, dry_run=body.dry_run
+        )
     except Exception as e:  # ManifestError / gate mismatch → operator-visible
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
     if report is None:
@@ -441,8 +447,9 @@ async def reconcile_features_endpoint(
             status.HTTP_409_CONFLICT,
             "nothing to reconcile — no manifest configured or no org yet",
         )
-    await audit.emit(
-        EventType.FEATURES_RECONCILED,
+    if not body.dry_run:
+        await audit.emit(
+            EventType.FEATURES_RECONCILED,
         action="reconcile",
         resource_type="feature_manifest",
         payload={

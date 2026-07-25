@@ -133,37 +133,39 @@ Denials are audited with the standard actor snapshot — feature denials become 
 
 ---
 
-## 10. Feature operations (v1.1) — runtime-grants surface [PLANNED]
+## 10. Feature operations (v1.1) — runtime-grants surface [REVIEW-CONSOLIDATED, ready to build]
 
-The materiality review (Avi, 2026-07-25) found the v1 gap: everything
-that changes at *runtime* — role membership, per-team enablement, user
-exceptions — has no audited surface; operators would fall back to raw
-tuple writes, bypassing audit. v1.1 closes it. Shipped alongside it
-already (feat-ops 1–3): startup gate-key validation
-(`FeatureGateMismatch` fails the boot on a typo'd `require_feature`
-key), `POST /platform/features/reconcile` (apply manifest edits without
-a restart, audited as `features.reconciled`), and the `enabled: false`
-declarative kill switch (sweeps ALL grants on the feature — defaults
-and runtime — idempotently; runtime grants do not return on re-enable).
+Reviewed adversarially by kestrel (ops), relay (consumer/portability), and juniper (generalization) — thread b999a0d238e5, 2026-07-25. Unanimous: cycle-A (manifest-default) features are production-shaped today; anything runtime-granular waits for v1.1. **Hard rule (juniper, effective immediately): no hand-tuple-writing as interim practice — if the surface doesn't exist, the feature waits.**
 
-### Endpoints (org-admin gated unless noted; every mutation audited)
+### Already shipped from the reviews (small fixes, same day)
+
+- **Runtime-only features** (relay's hard issue): `grants: []` is legal — declared, gate-validated, zero defaults; every grant is runtime data. No more overexposure/dummy-role workarounds.
+- **`dry_run` on reconcile** (kestrel): full would-do report, zero writes, no audit event — the read-only drift assessment consumer doctors consume instead of reimplementing the diff. Doctor VERIFIES; only the audited endpoint MUTATES (ruled: no doctor `--fix`, ever).
+- **Reconcile-time gate validation** was already present (reconcile refuses removing a manifest key a gate still declares — kestrel's delayed-landmine catch); boot-failure severity ratified via the internal-consistency-vs-external-availability rule: fail-closed at boot only for same-artifact config bugs, degrade+alarm for dependency blips.
+
+### v1.1 endpoints (org-admin gated unless noted; every mutation audited)
 
 | Verb | Path | Effect |
 |---|---|---|
-| GET | `/platform/features` | Manifest view + per-feature grant listing (defaults, roles, teams, users) — the operator visibility surface |
-| POST | `/platform/roles/{role}/assignees` | `user:<sub> assignee role:<role>` (creates the role object implicitly; `role.assigned`) |
-| DELETE | `/platform/roles/{role}/assignees/{user_id}` | revoke (`role.unassigned`) |
-| GET | `/platform/roles` | roles + assignees (read_tuples) |
-| POST | `/platform/features/{key}/grants` | body `{user_id}` or `{team_id}` → runtime grant (`feature.granted`) |
-| DELETE | `/platform/features/{key}/grants` | same body → revoke (`feature.revoked`) |
+| GET | `/platform/features` | Manifest view + per-feature grant listing **with provenance** (juniper #1): origin manifest-default vs runtime, granted_by, granted_at, creating audit event id |
+| POST | `/platform/features/{key}/freeze` · `/unfreeze` | **Incident freeze** (kestrel's headline): deny-all-now, PRESERVES every grant tuple, reversible in one call, runtime-only (no manifest edit), audited. Distinct axis from `enabled: false` = decommission (destructive, deliberate, deploy-time — unchanged) |
+| POST | `/platform/roles/{role}/assignees` | assign human to custom role (`role.assigned`) |
+| DELETE | `/platform/roles/{role}/assignees/{user_id}` | revoke — **idempotent audited no-op if absent, never 404** (juniper #3: re-runnable runbooks) |
+| GET | `/platform/roles` · `/platform/roles/{role}/assignees` | roles + membership listing (juniper #4: "who holds billing_ops" must not require reading tuples) |
+| POST / DELETE | `/platform/features/{key}/grants` | per-user / per-team runtime grants (`feature.granted` / `feature.revoked`), same idempotent-revoke rule |
 
-Rules: `{key}` must exist in the manifest (422 otherwise — no shadow
-features); disabled features refuse grants; dual-write ordering and
-`tolerate_existing` per the platform discipline; audit payloads carry
-grantee + grantor snapshots. New `EventType` members: `ROLE_ASSIGNED`,
-`ROLE_UNASSIGNED`, `FEATURE_GRANTED`, `FEATURE_REVOKED`.
+Rules carried forward: `{key}` must exist in the manifest (no shadow features); disabled AND frozen features refuse new grants; dual-write ordering; audit payloads carry grantee + grantor snapshots. New `EventType` members: `ROLE_ASSIGNED`, `ROLE_UNASSIGNED`, `FEATURE_GRANTED`, `FEATURE_REVOKED`, `FEATURE_FROZEN`, `FEATURE_UNFROZEN`.
 
-Out of scope for v1.1: an admin UI (API-first; UI is a product
-decision), percentage rollouts / per-request flags (this is a
-permission system, not a flag service — a deliberate distinction), and
-conditional-tuple trials (rides the D4 end-state work).
+### Also in v1.1 (review commitments)
+
+- **Close the orphan hole** (juniper #2): a full-sweep reconcile mode that enumerates `feature:*` grants via the runtime-grant bookkeeping (freeze/grant state gives us the object index the FGA Read API can't) and flags any key absent from the manifest — the role-grant-on-removed-feature leak stops being a documented limitation.
+- **Tombstone lifecycle rule** (relay #4, doctrine now, enforced then): feature retirement is a transition, not a disappearance — `enabled: false` → reconcile/sweep → remove the key only when provably grant-free. v1.1's reconcile refuses removing a key that still has discoverable grants.
+- **Codegen in CI** (relay #5): consumers wire the enum/union generation and a generated-files-current check; consuming-template gets the recipe.
+
+### Doctrine lines for consuming-template docs (juniper, written rules not oral tradition)
+
+1. **Features gate SURFACES; governed-writer/gate invariants govern ARTIFACTS.** They compose; neither substitutes for the other. A feature grant never bypasses an artifact invariant; artifact approval never implies a feature.
+2. **Feature keys are object-free** — `domain.verb`, never `domain.verb.<object-instance>`. Per-object questions belong to resource relations (compose `require_feature` + per-object check). *Note an open convention tension: juniper wants ≥3-segment keys rejected structurally; relay wants owned prefixes (`opsroom.tables.create` — 3 segments) for cross-product namespacing. Resolution proposal: multi-segment stays legal (namespacing is legitimate), the ban is on object-INSTANCE segments — doctrine + review, with the no-shadow-features rule as the structural backstop. Flagged for a joint ruling if either side objects.*
+3. **This is a permission system, not a flag service** — no percentage rollouts, no per-request config; if flag semantics are ever needed, shop for a flag tool.
+
+Out of scope for v1.1 (unchanged): admin UI (API-first), conditional-tuple trials (D4 end-state).

@@ -50,7 +50,13 @@ async def reconcile_features(
     org_id: UUID | str,
     *,
     prune: bool = False,
+    dry_run: bool = False,
 ) -> FeatureReconcileReport:
+    """dry_run computes the full report (would-add / orphans /
+    would-sweep / would-prune) WITHOUT writing — the read-only drift
+    assessment consumer doctors consume instead of reimplementing the
+    manifest-vs-FGA diff (Kestrel's single-door rule: doctor verifies,
+    only the audited endpoint mutates)."""
     desired = manifest.desired_tuples(org_id)
 
     # Current managed grants, discovered two ways (OpenFGA's Read API
@@ -74,9 +80,10 @@ async def reconcile_features(
         killed = await authorizer.read_tuples(object=f"feature:{key}")
         if not killed:
             continue
-        await authorizer.write(
-            deletes=[Tuple(user=t.user, relation=t.relation, object=t.object) for t in killed]
-        )
+        if not dry_run:
+            await authorizer.write(
+                deletes=[Tuple(user=t.user, relation=t.relation, object=t.object) for t in killed]
+            )
         for t in killed:
             report.disabled.append((t.user, t.relation, t.object))
             log.warning(
@@ -100,10 +107,11 @@ async def reconcile_features(
 
     missing = desired - current_managed
     if missing:
-        await authorizer.write(
-            writes=[Tuple(user=u, relation=r, object=o) for (u, r, o) in sorted(missing)],
-            tolerate_existing=True,
-        )
+        if not dry_run:
+            await authorizer.write(
+                writes=[Tuple(user=u, relation=r, object=o) for (u, r, o) in sorted(missing)],
+                tolerate_existing=True,
+            )
         report.added = sorted(missing)
         for u, r, o in report.added:
             log.info("features.grant_added", user=u, relation=r, object=o)
@@ -120,9 +128,10 @@ async def reconcile_features(
         )
 
     if prune and orphans:
-        await authorizer.write(
-            deletes=[Tuple(user=u, relation=r, object=o) for (u, r, o) in sorted(orphans)]
-        )
+        if not dry_run:
+            await authorizer.write(
+                deletes=[Tuple(user=u, relation=r, object=o) for (u, r, o) in sorted(orphans)]
+            )
         report.pruned = sorted(orphans)
         report.orphans = []
         for u, r, o in report.pruned:
@@ -135,5 +144,6 @@ async def reconcile_features(
         orphans=len(report.orphans),
         pruned=len(report.pruned),
         disabled=len(report.disabled),
+        dry_run=dry_run,
     )
     return report

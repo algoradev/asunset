@@ -103,9 +103,14 @@ def parse_manifest(raw: dict) -> FeatureManifest:
         body = body or {}
         if not isinstance(body, dict):
             raise ManifestError(f"feature {key!r} body must be a mapping")
+        # Grants are DEFAULTS and may be empty: a declared-but-no-defaults
+        # feature (grants: []) is the runtime-only pattern — it exists,
+        # gates validate, and every grant is runtime data (Relay's
+        # review: don't force overexposure or dummy roles just to
+        # satisfy schema).
         grants = body.get("grants") or []
-        if not isinstance(grants, list) or not grants:
-            raise ManifestError(f"feature {key!r} must declare a non-empty grants list")
+        if not isinstance(grants, list):
+            raise ManifestError(f"feature {key!r} grants must be a list (may be empty)")
         for g in grants:
             if g not in ORG_GRANTS and not ROLE_GRANT_RE.match(str(g)):
                 raise ManifestError(

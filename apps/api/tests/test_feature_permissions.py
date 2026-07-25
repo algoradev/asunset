@@ -188,3 +188,32 @@ async def test_kill_switch_is_idempotent(authz: OpenFGAAuthorizer) -> None:
     assert second.disabled == [] and second.added == []
     # restore
     await reconcile_features(authz, MANIFEST, ORG_ID)
+
+
+async def test_dry_run_reports_without_writing(authz: OpenFGAAuthorizer) -> None:
+    """dry_run = the read-only drift assessment doctors consume: full
+    report, zero mutations."""
+    # Start from a clean slate for this org's features.
+    await reconcile_features(authz, MANIFEST, ORG_ID, prune=True)
+    fresh = parse_manifest(
+        {
+            "features": {
+                **{k.key: {"grants": list(k.grants)} for k in MANIFEST.features},
+                "brand.new_thing": {"grants": ["organization#member"]},
+            }
+        }
+    )
+    preview = await reconcile_features(authz, fresh, ORG_ID, dry_run=True)
+    assert (
+        f"organization:{ORG_ID}#member", "can_use", "feature:brand.new_thing"
+    ) in preview.added
+    # ...but nothing was actually written.
+    assert not await authz.check(MEMBER, "can_use", "feature:brand.new_thing")
+
+    # dry_run previews the kill sweep too, without sweeping.
+    killed = parse_manifest(
+        {"features": {"audit.view": {"grants": ["organization#member"], "enabled": False}}}
+    )
+    preview = await reconcile_features(authz, killed, ORG_ID, dry_run=True)
+    assert len(preview.disabled) >= 1
+    assert await authz.check(MEMBER, "can_use", "feature:audit.view")

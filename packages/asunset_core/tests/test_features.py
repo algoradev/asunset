@@ -40,7 +40,7 @@ def test_parse_and_desired_tuples() -> None:
     [
         lambda r: r["features"].update({"BadKey": {"grants": ["organization#member"]}}),
         lambda r: r["features"].update({"noverb": {"grants": ["organization#member"]}}),
-        lambda r: r["features"]["reports.export"].update({"grants": []}),
+        lambda r: r["features"]["reports.export"].update({"grants": "organization#member"}),
         lambda r: r["features"]["reports.export"].update({"grants": ["user:abc"]}),
         lambda r: r["features"]["reports.export"].update({"grants": ["team#member"]}),
         lambda r: r["features"]["reports.export"].update({"grants": ["role:X#assignee"]}),
@@ -83,3 +83,13 @@ def test_enabled_must_be_boolean() -> None:
     raw["features"]["reports.export"]["enabled"] = "yes"
     with pytest.raises(ManifestError):
         parse_manifest(raw)
+
+
+def test_declared_only_feature_has_no_default_tuples() -> None:
+    # The runtime-only pattern (Relay): declared, gates validate,
+    # zero default grants — every grant is runtime data.
+    raw = _valid()
+    raw["features"]["mcp.write_project"] = {"grants": []}
+    m = parse_manifest(raw)
+    assert "mcp.write_project" in m.keys
+    assert not any(o == "feature:mcp.write_project" for (_, _, o) in m.desired_tuples(ORG))
