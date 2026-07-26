@@ -15,3 +15,7 @@ features:
     description: "Export visible notes as CSV"
     grants:
       - organization#member
+  notes.archive:
+    description: "Archive notes without deleting them"
+    grants:
+      - role:archivists#assignee

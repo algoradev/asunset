@@ -6,3 +6,4 @@ from enum import StrEnum
 class Feature(StrEnum):
     AUDIT_VIEW = "audit.view"  # Read the org's audit trail in the in-app viewer
     NOTES_EXPORT = "notes.export"  # Export visible notes as CSV
+    NOTES_ARCHIVE = "notes.archive"  # Archive notes without deleting them
