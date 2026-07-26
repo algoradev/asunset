@@ -6,6 +6,10 @@
 #
 # Grants here are DEFAULTS (usersets only). Direct user grants and
 # per-team grants are runtime data — written via the API, not listed here.
+areas:
+  notes.share:
+    modes: [basic, org_wide]
+
 features:
   audit.view:
     description: "Read the org's audit trail in the in-app viewer"
@@ -22,3 +26,17 @@ features:
     description: "Archive notes without deleting them"
     grants:
       - role:archivists#assignee
+  notes.share.basic:
+    description: "Share notes with users and teams"
+    grants:
+      - organization#member
+    scope:
+      - resource_type: note
+        resolver: shareable_notes
+  notes.share.org_wide:
+    description: "Share notes to the whole organization"
+    grants:
+      - role:sharers#assignee
+    scope:
+      - resource_type: note
+        resolver: shareable_notes

@@ -26,6 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from asunset_api.config import get_settings
 from asunset_api.db.models import Note
 from asunset_api.features_gen import Feature
 from asunset_api.routers.deps import (
@@ -219,6 +220,45 @@ async def export_notes(
         media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="notes.csv"'},
     )
+
+
+@router.get(
+    "/share/org-wide/candidates",
+    response_model=list[NoteOut],
+    dependencies=[Depends(require_feature(Feature.NOTES_SHARE_ORG_WIDE))],
+)
+async def org_wide_share_candidates(
+    principal: Principal = Depends(get_current_principal),
+    session: AsyncSession = Depends(get_db),
+    authorizer: Authorizer = Depends(get_authorizer),
+) -> list[NoteOut]:
+    """Stub endpoint for the org-wide share capability.
+
+    The resolver is the sole data door: the DB query only hydrates note ids
+    admitted by the declared capability scope.
+    """
+    from asunset_core.features import resolve_scope
+
+    from asunset_api.features_boot import _load as _load_manifest
+
+    manifest = _load_manifest(get_settings())
+    if manifest is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "no feature manifest configured on this deployment",
+        )
+    ids = [
+        UUID(i)
+        for i in await resolve_scope(
+            manifest, "notes.share.org_wide", "note", principal, authorizer
+        )
+    ]
+    if not ids:
+        return []
+    result = await session.execute(
+        select(Note).where(Note.id.in_(ids)).order_by(Note.updated_at.desc(), Note.id.asc())
+    )
+    return [NoteOut.model_validate(n) for n in result.scalars().all()]
 
 
 @router.post("", response_model=NoteOut, status_code=status.HTTP_201_CREATED)

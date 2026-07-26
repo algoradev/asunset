@@ -10,3 +10,9 @@ between the two is a compliance REPORT, never a gate.
 | `audit.view` | enabled | organization#member | *undeclared (grandfathered)* | _(design column)_ |
 | `notes.export` | enabled | organization#member | note → visible_notes | _(design column)_ |
 | `notes.archive` | enabled | role:archivists#assignee | *undeclared (grandfathered)* | _(design column)_ |
+| `notes.share.basic` | enabled | organization#member | note → shareable_notes | _(design column)_ |
+| `notes.share.org_wide` | enabled | role:sharers#assignee | note → shareable_notes | _(design column)_ |
+
+## Areas (declared mode vocabularies)
+
+- `notes.share`: basic, org_wide

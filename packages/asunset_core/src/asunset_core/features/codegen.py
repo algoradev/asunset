@@ -64,10 +64,6 @@ def main(argv: list[str] | None = None) -> None:
         ap.error("nothing to do — pass --py and/or --ts")
 
 
-if __name__ == "__main__":
-    main()
-
-
 def assert_generated_current(
     manifest_path: str, *, py_path: str | None = None, ts_path: str | None = None
 ) -> None:
@@ -125,3 +121,7 @@ def areas_python(manifest) -> str:  # noqa: ANN001
         lines.append(f'    "{prefix}": {caps!r},')
     lines.append("}")
     return "\n".join(lines) + "\n"
+
+
+if __name__ == "__main__":
+    main()
