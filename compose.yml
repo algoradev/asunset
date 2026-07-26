@@ -208,6 +208,13 @@ services:
       context: .
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
+    volumes:
+      # The feature manifest is mounted, not only baked (exercise-2
+      # finding): a baked-only manifest makes preview-before-apply
+      # unreachable — any edit needs a rebuild whose startup reconcile
+      # applies it first. Mounted, the flow is: edit on disk →
+      # POST /platform/features/reconcile dry_run:true → apply.
+      - ./apps/api/features.yaml:/app/features.yaml:ro
     environment:
       ASUNSET_ENV: ${ASUNSET_ENV}
       APP_DB_URL: postgresql+asyncpg://${APP_DB_USER}:${APP_DB_PASSWORD}@postgres:5432/${APP_DB_NAME}

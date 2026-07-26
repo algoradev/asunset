@@ -14,7 +14,7 @@
 #   tools/ops/feature-freeze.sh status
 set -euo pipefail
 
-CMD="${1:?usage: feature-freeze.sh freeze|unfreeze|status <key> [reason]}"
+CMD="${1:-help}"
 KEY="${2:-}"
 shift $(( $# > 1 ? 2 : 1 )) || true
 REASON="${*:-}"
@@ -51,8 +51,22 @@ case "$CMD" in
       -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
     ;;
   status)
-    curl -sf "$API_URL/platform/features" -H "Authorization: Bearer $TOKEN" \
-      | python3 -c "import json,sys; [print(f\"{f['key']}: {'FROZEN — ' + str(f['freeze_reason']) if f['frozen'] else ('disabled' if not f['enabled'] else 'active')}\") for f in json.load(sys.stdin)]"
+    if [ "${KEY:-}" = "--json" ]; then
+      curl -sf "$API_URL/platform/features" -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+    else
+      curl -sf "$API_URL/platform/features" -H "Authorization: Bearer $TOKEN" \
+        | python3 -c "import json,sys; [print(f\"{f['key']}: {'FROZEN — ' + str(f['freeze_reason']) if f['frozen'] else ('disabled' if not f['enabled'] else 'active')}\") for f in json.load(sys.stdin)]"
+    fi
     ;;
-  *) echo "FATAL: unknown command $CMD" >&2; exit 1;;
+  help|--help|-h)
+    cat <<'USAGE'
+feature-freeze.sh — incident freeze/unfreeze (docs/runbooks/feature-freeze.md)
+  freeze   <key> [reason...]   deny-all-now; grants preserved; reversible
+  unfreeze <key>               restore exactly as it was
+  status [--json]              per-feature state (active/FROZEN/disabled)
+Run from the deployment root (needs .env). Auth: the machine operator
+identity (asunset-api client credentials from .env) — no token juggling.
+USAGE
+    ;;
+  *) echo "FATAL: unknown command $CMD (try: help)" >&2; exit 1;;
 esac

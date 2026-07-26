@@ -148,6 +148,37 @@ class AssigneeOut(BaseModel):
     assigned_at: datetime
 
 
+class FreezeOut(BaseModel):
+    frozen: list[str]
+    blast_radius: str
+    noop: bool
+
+
+class UnfreezeOut(BaseModel):
+    unfrozen: list[str]
+    noop: bool
+
+
+class GrantResultOut(BaseModel):
+    granted: bool
+    noop: bool
+
+
+class RevokeResultOut(BaseModel):
+    revoked: bool
+    noop: bool
+
+
+class AssignResultOut(BaseModel):
+    assigned: bool
+    noop: bool
+
+
+class UnassignResultOut(BaseModel):
+    unassigned: bool
+    noop: bool
+
+
 def _fga_user(grantee_type: str, grantee_id: UUID) -> str:
     return f"user:{grantee_id}" if grantee_type == "user" else f"team:{grantee_id}#member"
 
@@ -209,7 +240,7 @@ async def list_features(
 # --- freeze / unfreeze (incident tier) -------------------------------------
 
 
-@router.post("/features/{key}/freeze", status_code=status.HTTP_200_OK)
+@router.post("/features/{key}/freeze", status_code=status.HTTP_200_OK, response_model=FreezeOut)
 async def freeze_feature(
     key: str,
     body: FreezeIn,
@@ -254,7 +285,7 @@ async def freeze_feature(
     return {"frozen": [key], "blast_radius": "1 capability", "noop": False}
 
 
-@router.post("/features/{key}/unfreeze", status_code=status.HTTP_200_OK)
+@router.post("/features/{key}/unfreeze", status_code=status.HTTP_200_OK, response_model=UnfreezeOut)
 async def unfreeze_feature(
     key: str,
     principal: Principal = Depends(get_current_principal),
@@ -289,7 +320,7 @@ async def unfreeze_feature(
 # --- runtime feature grants -------------------------------------------------
 
 
-@router.post("/features/{key}/grants", status_code=status.HTTP_201_CREATED)
+@router.post("/features/{key}/grants", status_code=status.HTTP_201_CREATED, response_model=GrantResultOut)
 async def grant_feature(
     key: str,
     body: GrantIn,
@@ -350,7 +381,7 @@ async def grant_feature(
     return {"granted": True, "noop": False}
 
 
-@router.delete("/features/{key}/grants", status_code=status.HTTP_200_OK)
+@router.delete("/features/{key}/grants", status_code=status.HTTP_200_OK, response_model=RevokeResultOut)
 async def revoke_feature_grant(
     key: str,
     body: GrantIn,
@@ -454,7 +485,7 @@ async def list_assignees(
     ]
 
 
-@router.post("/roles/{role}/assignees", status_code=status.HTTP_201_CREATED)
+@router.post("/roles/{role}/assignees", status_code=status.HTTP_201_CREATED, response_model=AssignResultOut)
 async def assign_role(
     role: str,
     body: AssignIn,
@@ -507,7 +538,7 @@ async def assign_role(
     return {"assigned": True, "noop": False}
 
 
-@router.delete("/roles/{role}/assignees/{user_id}", status_code=status.HTTP_200_OK)
+@router.delete("/roles/{role}/assignees/{user_id}", status_code=status.HTTP_200_OK, response_model=UnassignResultOut)
 async def unassign_role(
     role: str,
     user_id: UUID,
