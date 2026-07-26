@@ -11,6 +11,15 @@ Template for self-hosted, role-based, HIPAA-ready platforms. Stack:
 
 One deployment = one `organization`. Within the org, users belong to **teams**. Resources are team-scoped by default; direct user grants and org-wide grants are both supported in the FGA model.
 
+On top of the base stack the platform ships:
+
+- **Identity contract** — the ratified, test-verified token/principal/session contract every consumer rides: [`docs/identity-contract.md`](docs/identity-contract.md)
+- **Agent session tokens** — scoped, attributable, instantly-revocable credentials for agent-executed work (asunset-signed, intersection-enforced): [`docs/session-token-mint-spec.md`](docs/session-token-mint-spec.md)
+- **Feature registration** — manifest-driven feature permissions with runtime grants, roles, incident freeze, capability areas + declared resource scopes, generated access matrices and test skeletons: [`docs/feature-permissions-spec.md`](docs/feature-permissions-spec.md) · how-to: [`docs/adding-a-feature.md`](docs/adding-a-feature.md) · narrative: [`docs/feature-cycle-story.md`](docs/feature-cycle-story.md)
+- **Operations** — `asunset doctor` preflight (env coherence + live probes), incident runbooks ([`docs/runbooks/`](docs/runbooks/)), point-in-time access-matrix export, per-feature `explain`
+- **Consumer testing kit** — `asunset_core.testing`: a decision-level `StaticAuthorizer` plus `ephemeral_openfga()` (the platform's own hermetic harness, packaged)
+- **Security suites** — RLS isolation, FGA semantics, JWT validation, and session tokens are *test-verified* against real Postgres/OpenFGA/Keycloak containers, not mocked (200+ tests)
+
 ## Run it
 
 ```sh
@@ -82,6 +91,12 @@ demands it.
 
 ## Operate it
 
+```sh
+./tools/deploy/asunset doctor        # preflight: .env coherence + live stack probes (--json)
+tools/ops/feature-freeze.sh status   # feature states; freeze/unfreeze for incidents
+```
+
+
 **FGA ↔ DB reconciliation.** The dual-write invariant is: *fail toward orphan FGA tuples, never toward phantom DB rows* — see the comment at the top of `apps/api/src/asunset_api/auth/authorizer.py`. Reconcile tooling:
 
 ```sh
@@ -140,6 +155,14 @@ asunset/
 ├── compose.yml, compose.dev.yml, compose.tls.yml, compose.tailscale.yml, compose.cohost.yml, compose.wazuh.yml
 ├── .env.example
 ├── install.sh                     # bootstrap docker + go + asunset CLI on a fresh host
+├── docs/                          # canonical contracts + specs + worked examples
+│   ├── identity-contract.md       #   ratified platform identity contract (D1–D7)
+│   ├── feature-permissions-spec.md#   feature system spec (v1 → v1.1 → §11 capability model)
+│   ├── session-token-mint-spec.md #   agent session tokens (D4)
+│   ├── adding-a-feature.md        #   the copy-pastable recipe
+│   ├── access-matrix.md           #   generated design-time projection
+│   ├── runbooks/                  #   feature-freeze, operator-token
+│   └── friction/                  #   consumer-exercise friction reports
 ├── apps/
 │   ├── api/                       # Notes-demo backend (read as reference)
 │   ├── web/                       # Notes-demo SPA (read as reference)
