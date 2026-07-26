@@ -11,3 +11,7 @@ features:
     description: "Read the org's audit trail in the in-app viewer"
     grants:
       - organization#member
+  notes.export:
+    description: "Export visible notes as CSV"
+    grants:
+      - organization#member

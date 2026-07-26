@@ -11,27 +11,30 @@ Authorization pattern:
 
 from __future__ import annotations
 
+import csv
+from io import StringIO
 from uuid import UUID
-
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from uuid import UUID as _UUID
 
 from asunset_core.audit.events import EventType
 from asunset_core.audit.sink import AuditSink
 from asunset_core.auth.authorizer import AccessPath, Authorizer, Tuple
-from asunset_core.auth.principal import Principal
 from asunset_core.auth.oidc import get_current_principal
+from asunset_core.auth.principal import Principal
 from asunset_core.db.models import AppUser, Organization, Team, TeamMember
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from asunset_api.db.models import Note
+from asunset_api.features_gen import Feature
 from asunset_api.routers.deps import (
     OrgContext,
     get_audit_sink,
     get_authorizer,
     get_current_org,
     get_db,
+    require_feature,
 )
 from asunset_api.routers.schemas import (
     NoteCreateIn,
@@ -171,6 +174,38 @@ async def list_notes(
         enriched.append(out)
 
     return enriched
+
+
+@router.get(
+    "/export",
+    dependencies=[Depends(require_feature(Feature.NOTES_EXPORT))],
+)
+async def export_notes(
+    principal: Principal = Depends(get_current_principal),
+    session: AsyncSession = Depends(get_db),
+    authorizer: Authorizer = Depends(get_authorizer),
+) -> Response:
+    """Export every note visible to the caller as CSV."""
+    viewable = await authorizer.list_objects(principal.fga_user(), "can_view", "note")
+    ids = [UUID(obj.split(":", 1)[1]) for obj in viewable]
+    stmt = select(Note).where(Note.owner_id == principal.user_id)
+    if ids:
+        stmt = select(Note).where(or_(Note.owner_id == principal.user_id, Note.id.in_(ids)))
+
+    result = await session.execute(stmt.order_by(Note.created_at.asc(), Note.id.asc()))
+    notes = list(result.scalars().all())
+
+    out = StringIO()
+    writer = csv.writer(out, lineterminator="\n")
+    writer.writerow(["id", "title", "created_at"])
+    for note in notes:
+        writer.writerow([str(note.id), note.title, note.created_at.isoformat()])
+
+    return Response(
+        out.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="notes.csv"'},
+    )
 
 
 @router.post("", response_model=NoteOut, status_code=status.HTTP_201_CREATED)

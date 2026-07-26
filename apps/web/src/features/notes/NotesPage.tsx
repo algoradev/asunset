@@ -2,13 +2,15 @@ import { useState } from "react";
 import { useAuth } from "react-oidc-context";
 import { useQuery } from "@tanstack/react-query";
 import { Trans } from "react-i18next";
-import { LayoutGrid, Rows3 } from "lucide-react";
+import { Download, LayoutGrid, Rows3 } from "lucide-react";
 
 import { api, type Note, type NoteScope, type Team } from "@/api";
 import { RESOURCE } from "@/config/resource";
 import { AccessBadge } from "@/components/AccessBadge";
 import { PageHeader } from "@/components/PageHeader";
 import { useT } from "@/lib/useT";
+import { useFeatures } from "@/lib/useFeatures";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Empty,
@@ -48,11 +50,13 @@ export function NotesPage() {
   const { t } = useT();
   const token = auth.user?.access_token;
   const f = { accessToken: token };
+  const features = useFeatures();
 
   const [scope, setScope] = useState<NoteScope>("mine");
   const [selectedTeam, setSelectedTeam] = useState<string | null>(null);
   const [openNote, setOpenNote] = useState<Note | null>(null);
   const [view, setView] = useState<View>("table");
+  const [exporting, setExporting] = useState(false);
 
   const TABS: { scope: NoteScope; label: string }[] = [
     { scope: "mine", label: t("notes.tabMine") },
@@ -88,6 +92,25 @@ export function NotesPage() {
 
   const teams = teamsQ.data ?? [];
   const teamById = new Map(teams.map((t) => [t.id, t.name]));
+  const canExport = features.has("notes.export");
+
+  async function handleExport() {
+    if (!token || exporting) return;
+    setExporting(true);
+    try {
+      const csv = await api.exportNotesCsv(f);
+      const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "notes.csv";
+      document.body.append(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return (
     <>
@@ -95,7 +118,22 @@ export function NotesPage() {
         <PageHeader
           title={t("notes.plural")}
           description={scopeHint(scope, t)}
-          actions={<NewNoteDialog teams={teams} />}
+          actions={
+            <>
+              {canExport && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleExport}
+                  disabled={exporting}
+                >
+                  <Download className="size-4" />
+                  {t("common.exportCsv")}
+                </Button>
+              )}
+              <NewNoteDialog teams={teams} />
+            </>
+          }
         />
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

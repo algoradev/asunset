@@ -57,6 +57,30 @@ async function request<T>(
   return (await resp.json()) as T;
 }
 
+async function requestText(
+  path: string,
+  init: RequestInit,
+  { accessToken }: Fetcher,
+): Promise<string> {
+  const correlationId = newCorrelationId();
+  const headers = new Headers(init.headers);
+  headers.set("X-Correlation-Id", correlationId);
+  if (accessToken) {
+    headers.set("Authorization", `Bearer ${accessToken}`);
+  }
+
+  const resp = await fetch(`${API_URL}${path}`, { ...init, headers });
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => "");
+    throw new ApiError(
+      resp.status,
+      text || resp.statusText,
+      resp.headers.get("X-Correlation-Id") ?? correlationId,
+    );
+  }
+  return await resp.text();
+}
+
 // --- Types (mirror the Pydantic schemas) ---
 
 export type Role = "admin" | "member";
@@ -331,6 +355,7 @@ export const api = {
     ),
   listNoteShares: (f: Fetcher, id: string) =>
     request<NoteGrant[]>(`/notes/${id}/shares`, {}, f),
+  exportNotesCsv: (f: Fetcher) => requestText("/notes/export", {}, f),
 
   // audit
   listAuditEvents: (
