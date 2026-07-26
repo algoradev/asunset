@@ -66,6 +66,7 @@ var secretEnvNames = []string{
 	"APP_DB_PASSWORD",
 	"KC_DB_PASSWORD",
 	"FGA_DB_PASSWORD",
+	"SESSION_TOKEN_PRIVATE_KEY_B64",
 }
 
 // configKeyToEnv maps flat config-file keys (snake_case) to canonical .env
@@ -81,6 +82,7 @@ var configKeyToEnv = map[string]string{
 	"app_db_password":             "APP_DB_PASSWORD",
 	"kc_db_password":              "KC_DB_PASSWORD",
 	"fga_db_password":             "FGA_DB_PASSWORD",
+	"session_token_private_key_b64": "SESSION_TOKEN_PRIVATE_KEY_B64",
 }
 
 // cmdInit dispatches between the interactive wizard (no args) and the
@@ -383,6 +385,8 @@ func applySecret(cfg *Config, envName, val string) {
 		cfg.Secrets.KcDbPass = val
 	case "FGA_DB_PASSWORD":
 		cfg.Secrets.FgaDbPass = val
+	case "SESSION_TOKEN_PRIVATE_KEY_B64":
+		cfg.Secrets.SessionTokenKeyB64 = val
 	}
 }
 

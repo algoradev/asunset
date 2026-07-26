@@ -1,7 +1,12 @@
 """Feature scaffold — the ceremony generator (DX list item 5).
 
+    # single capability / flat key:
     python -m asunset_core.features.scaffold notes.share \
         --grants organization#member --scope note:visible_notes
+    # a whole AREA in one run (E3 friction: no manual mode-merging):
+    python -m asunset_core.features.scaffold notes.share \
+        --modes basic=organization#member org_wide=role:sharers#assignee \
+        --scope note:visible_notes
 
 Prints everything the recipe (docs/adding-a-feature.md) would have you
 write: the manifest block, the codegen command, the backend gate, the
@@ -64,10 +69,48 @@ rollout, agents, composition — the access matrix is a designed artifact.
 """
 
 
+def area_scaffold_text(
+    area: str, modes: dict[str, list[str]], scopes: list[tuple[str, str]]
+) -> str:
+    """One composed block for a whole area: the modes vocabulary plus
+    every capability, no manual merging (caliper's E3 friction #2)."""
+    if not FEATURE_KEY_RE.match(area):
+        raise SystemExit(f"invalid area {area!r}")
+    out = [
+        "── 1. features.yaml (whole area, one paste) ─────────────────────",
+        "areas:",
+        f"  {area}:",
+        f"    modes: [{', '.join(modes)}]",
+        "features:",
+    ]
+    for mode, grants in modes.items():
+        out.append(f"  {area}.{mode}:")
+        out.append('    description: "TODO"')
+        if grants:
+            out.append("    grants:")
+            out += [f"      - {g}" for g in grants]
+        else:
+            out.append("    grants: []")
+        if scopes:
+            out.append("    scope:")
+            for rt, rv in scopes:
+                out.append(f"      - resource_type: {rt}")
+                out.append(f"        resolver: {rv}")
+    out += [
+        "",
+        "── then per capability: codegen → gate → guard → matrix/skeletons",
+        "(run the single-key scaffold for each capability's snippets, or",
+        "follow docs/adding-a-feature.md; decision record first.)",
+    ]
+    return "\n".join(out) + "\n"
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("key")
+    ap.add_argument("key", help="feature key, or area prefix with --modes")
     ap.add_argument("--grants", nargs="*", default=[])
+    ap.add_argument("--modes", nargs="*", default=[],
+                    help="mode=grant1,grant2 pairs — scaffolds the whole area")
     ap.add_argument("--scope", nargs="*", default=[],
                     help="resource_type:resolver pairs")
     args = ap.parse_args(argv)
@@ -75,7 +118,14 @@ def main(argv: list[str] | None = None) -> None:
     for s in args.scope:
         rt, _, rv = s.partition(":")
         scopes.append((rt, rv))
-    print(scaffold_text(args.key, args.grants, scopes))
+    if args.modes:
+        modes: dict[str, list[str]] = {}
+        for m in args.modes:
+            name, _, grants = m.partition("=")
+            modes[name] = [g for g in grants.split(",") if g]
+        print(area_scaffold_text(args.key, modes, scopes))
+    else:
+        print(scaffold_text(args.key, args.grants, scopes))
 
 
 if __name__ == "__main__":

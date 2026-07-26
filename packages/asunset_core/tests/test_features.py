@@ -115,3 +115,17 @@ def test_codegen_cli_works_with_areas(tmp_path) -> None:
         check=True, capture_output=True,
     )
     assert "FEATURE_AREAS" in out_py.read_text()
+
+
+def test_area_scaffold_composes_modes() -> None:
+    # E3 friction #2: separate scaffold runs forced manual mode-merging.
+    from asunset_core.features.scaffold import area_scaffold_text
+
+    out = area_scaffold_text(
+        "notes.share",
+        {"basic": ["organization#member"], "org_wide": ["role:sharers#assignee"]},
+        [("note", "visible_notes")],
+    )
+    assert "modes: [basic, org_wide]" in out
+    assert "notes.share.basic:" in out and "notes.share.org_wide:" in out
+    assert out.count("resolver: visible_notes") == 2

@@ -54,6 +54,9 @@ type Secrets struct {
 	AppUserPass       string
 	KcDbPass          string
 	FgaDbPass         string
+	// base64 PEM RSA key signing agent session tokens (D4 mint) —
+	// generated so deployments never run on the ephemeral dev fallback.
+	SessionTokenKeyB64 string
 }
 
 func newConfig() Config {

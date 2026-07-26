@@ -80,5 +80,8 @@ func (e ExistingEnv) fillSecrets(cfg *Config) {
 		AppUserPass:       e.Vars["APP_DB_PASSWORD"],
 		KcDbPass:          e.Vars["KC_DB_PASSWORD"],
 		FgaDbPass:         e.Vars["FGA_DB_PASSWORD"],
+		// Absent in pre-v1.1 .envs — deliberately NOT in the reuse-
+		// required list; ensureSessionKey generates it on next init.
+		SessionTokenKeyB64: e.Vars["SESSION_TOKEN_PRIVATE_KEY_B64"],
 	}
 }

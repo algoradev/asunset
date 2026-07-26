@@ -47,6 +47,10 @@ OPENFGA_API_URL=http://openfga:8080
 OPENFGA_STORE_NAME=asunset
 OPENFGA_API_KEY={{.Secrets.OpenFGAAPIKey}}
 
+# ---- agent session tokens (D4 mint) ----
+# base64-encoded RSA PEM; persistent so agent sessions survive restarts.
+SESSION_TOKEN_PRIVATE_KEY_B64={{.Secrets.SessionTokenKeyB64}}
+
 # ---- api ----
 API_PORT=8000
 API_CORS_ORIGINS={{.WebURL}}

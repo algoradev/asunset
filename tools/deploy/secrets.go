@@ -1,6 +1,11 @@
 package main
 
 import (
+	cryptorand "crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/pem"
 	"crypto/rand"
 	"fmt"
 	"math/big"
@@ -46,5 +51,29 @@ func generateSecrets(cfg *Config) error {
 		*p.dst = v
 	}
 	cfg.Secrets.KeycloakAdmin = "admin"
+	if err := ensureSessionKey(cfg); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ensureSessionKey generates the agent-session signing key when absent —
+// called on BOTH the fresh-generate and reuse paths, so pre-v1.1 .env
+// files gain a persistent key on their next init instead of running on
+// the ephemeral dev fallback forever.
+func ensureSessionKey(cfg *Config) error {
+	if cfg.Secrets.SessionTokenKeyB64 != "" {
+		return nil
+	}
+	key, err := rsa.GenerateKey(cryptorand.Reader, 2048)
+	if err != nil {
+		return err
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return err
+	}
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
+	cfg.Secrets.SessionTokenKeyB64 = base64.StdEncoding.EncodeToString(pemBytes)
 	return nil
 }
