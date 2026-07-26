@@ -94,13 +94,26 @@ async def get_current_org(
         memberships = result.scalars().all()
 
     if not memberships:
-        # platform_admin can exist without an org — they're expected to
-        # invoke POST /platform/bootstrap before doing anything else.
-        if principal.is_platform_admin:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                "no org provisioned yet — call POST /platform/bootstrap",
-            )
+        # Instance-level operators (platform_admin, and platform_support —
+        # which includes the machine operator identity, the asunset-api
+        # service account) may act without membership: they resolve to
+        # the instance's single org as a plain MEMBER, so operator-tier
+        # endpoints work while admin-tier mutations stay denied. Found
+        # by the v1.1 runbook pre-flight: the on-call identity could
+        # mint a valid token yet never pass this gate.
+        if principal.is_platform_admin or principal.is_platform_support:
+            from asunset_core.db.models import Organization
+            from asunset_core.db.session import get_admin_session_factory
+
+            admin_factory = get_admin_session_factory()
+            async with admin_factory() as s:
+                row = (await s.execute(select(Organization.id).limit(1))).first()
+            if row is None:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "no org provisioned yet — call POST /platform/bootstrap",
+                )
+            return OrgContext(org_id=row[0], role=MemberRole.member)
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             "user has no org membership — contact an admin",

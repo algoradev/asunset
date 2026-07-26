@@ -64,6 +64,7 @@ COPY --from=base /packages/asunset_core /packages/asunset_core
 COPY --from=base /app/src /app/src
 COPY --from=base /app/alembic.ini /app/
 COPY --from=base /app/alembic /app/alembic
+COPY --from=base /app/features.yaml /app/
 COPY --from=base /app/entrypoint.sh /app/
 RUN chown -R asunset:asunset /app /packages/asunset_core
 
