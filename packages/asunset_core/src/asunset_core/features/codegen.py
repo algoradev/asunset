@@ -34,7 +34,10 @@ def python_module(manifest: FeatureManifest) -> str:
     for f in manifest.features:
         const = f.key.replace(".", "_").upper()
         lines.append(f'    {const} = "{f.key}"  # {f.description}'.rstrip())
-    return "\n".join(lines) + "\n"
+    out = "\n".join(lines) + "\n"
+    if manifest.areas:
+        out += areas_python(manifest)
+    return out
 
 
 def ts_module(manifest: FeatureManifest) -> str:
@@ -92,3 +95,33 @@ def assert_generated_current(
             f"{ts_path} is stale vs {manifest_path} — regenerate with: "
             f"{regen_cmd} {manifest_path} --ts {ts_path}"
         )
+
+
+def assert_declaration_fingerprint(
+    manifest_path: str, key: str, expected: str
+) -> None:
+    """The stale-failing guard filled skeletons embed (spec §11): fails
+    the moment the capability's declaration (grants/scope/enabled)
+    changes, so evidence never silently outlives its claim."""
+    actual = load_manifest(manifest_path).fingerprint(key)
+    assert actual == expected, (
+        f"declaration of {key!r} changed (fingerprint {actual} != evidenced {expected}) — "
+        f"re-verify the matrix-row tests against the new declaration, then update "
+        f"EXPECTED_FINGERPRINT"
+    )
+
+
+def areas_python(manifest) -> str:  # noqa: ANN001
+    """Grouped ergonomics (review #2, relay §5): canonical enum stays
+    flat; these groupings serve docs/UI, resolving to canonical keys."""
+    lines = ["", "", "FEATURE_AREAS = {"]
+    for prefix, modes in sorted(manifest.areas.items()):
+        lines.append(f'    "{prefix}": {sorted(modes)!r},')
+    lines.append("}")
+    lines.append("")
+    lines.append("CAPABILITIES_BY_AREA = {")
+    for prefix in sorted(manifest.areas):
+        caps = sorted(f.key for f in manifest.features if f.key.startswith(prefix + "."))
+        lines.append(f'    "{prefix}": {caps!r},')
+    lines.append("}")
+    return "\n".join(lines) + "\n"

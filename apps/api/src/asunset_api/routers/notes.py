@@ -23,7 +23,7 @@ from asunset_core.auth.oidc import get_current_principal
 from asunset_core.auth.principal import Principal
 from asunset_core.db.models import AppUser, Organization, Team, TeamMember
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from asunset_api.db.models import Note
@@ -185,15 +185,28 @@ async def export_notes(
     session: AsyncSession = Depends(get_db),
     authorizer: Authorizer = Depends(get_authorizer),
 ) -> Response:
-    """Export every note visible to the caller as CSV."""
-    viewable = await authorizer.list_objects(principal.fga_user(), "can_view", "note")
-    ids = [UUID(obj.split(":", 1)[1]) for obj in viewable]
-    stmt = select(Note).where(Note.owner_id == principal.user_id)
-    if ids:
-        stmt = select(Note).where(or_(Note.owner_id == principal.user_id, Note.id.in_(ids)))
+    """Export every note visible to the caller as CSV.
 
-    result = await session.execute(stmt.order_by(Note.created_at.asc(), Note.id.asc()))
-    notes = list(result.scalars().all())
+    Reference for spec §11's sole-data-door pattern: the object set
+    comes ONLY from the capability's declared scope resolver — no
+    open-coded queries, no defensive owner-unions (ownership derives
+    can_view; the resolver is the single reach authority)."""
+    from asunset_core.features import resolve_scope
+
+    from asunset_api.features_boot import _load as _load_manifest
+
+    manifest = _load_manifest(get_settings())
+    ids = [
+        UUID(i)
+        for i in await resolve_scope(manifest, "notes.export", "note", principal, authorizer)
+    ]
+    if not ids:
+        notes: list[Note] = []
+    else:
+        result = await session.execute(
+            select(Note).where(Note.id.in_(ids)).order_by(Note.created_at.asc(), Note.id.asc())
+        )
+        notes = list(result.scalars().all())
 
     out = StringIO()
     writer = csv.writer(out, lineterminator="\n")

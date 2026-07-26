@@ -15,6 +15,9 @@ features:
     description: "Export visible notes as CSV"
     grants:
       - organization#member
+    scope:
+      - resource_type: note
+        resolver: visible_notes
   notes.archive:
     description: "Archive notes without deleting them"
     grants:

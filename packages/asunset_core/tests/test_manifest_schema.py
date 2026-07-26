@@ -48,3 +48,15 @@ def test_shipped_manifests_validate() -> None:
     for rel in ("apps/api/features.yaml", "consuming-template/features.yaml"):
         doc = yaml.safe_load((repo / rel).read_text())
         jsonschema.validate(doc, SCHEMA)
+
+
+def test_scope_and_areas_shapes() -> None:
+    _ok({"areas": {"notes.export": {"modes": ["basic", "full"]}},
+         "features": {"notes.export.basic": {
+             "grants": ["organization#member"],
+             "scope": [{"resource_type": "note", "resolver": "visible_notes"}]}}})
+    _bad({"features": {"a.b": {"grants": [], "scope": [{"resource_type": "note"}]}}})
+    _bad({"features": {"a.b": {"grants": [], "scope": [
+        {"resource_type": "note", "resolver": "no spaces allowed"}]}}})
+    _bad({"areas": {"a.b": {"modes": []}}, "features": {"a.b": {"grants": []}}})
+    _bad({"areas": {"a.b": {"modes": ["c"], "extra": 1}}, "features": {"a.b": {"grants": []}}})

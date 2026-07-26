@@ -174,7 +174,7 @@ Out of scope for v1.1 (unchanged): admin UI (API-first), conditional-tuple trial
 
 ---
 
-## 11. Capability model — feature areas, capabilities, declared resource scopes [REVIEW-CONSOLIDATED, ready to build after v1.1]
+## 11. Capability model — feature areas, capabilities, declared resource scopes [SHIPPED 2026-07-26]
 
 Reviewed by kestrel/relay/juniper (thread ff1b0b251322, 2026-07-26): three build-with-changes verdicts converging on one mechanism. Origin: Avi's sub-feature-levels requirement via caliper's exercise-1 addendum. What follows is the build contract.
 

@@ -18,3 +18,17 @@ features:
     description: "Export reports to CSV/PDF"
     grants:
       - organization#member
+
+# Capability model (spec §11) — when a feature grows real modes/tiers:
+#   areas:
+#     reports.export:
+#       modes: [basic, org_wide]      # closed vocabulary; 3rd key segment must be one of these
+#   features:
+#     reports.export.org_wide:
+#       grants: [role:analysts#assignee]
+#       scope:                        # declared reach: a REGISTERED resolver name, never logic
+#         - resource_type: report
+#           resolver: org_reports
+# Register resolvers at startup (authz/scopes.py-style; see the demo's
+# asunset_api/authz_scopes.py); generate the matrix + test skeletons:
+#   python -m asunset_core.features.matrix features.yaml --md docs/access-matrix.md --skeletons tests/feature_matrix/

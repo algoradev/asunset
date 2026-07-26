@@ -2,14 +2,16 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://asunset.dev/schemas/features.schema.json",
   "title": "asunset feature manifest (features.yaml)",
-  "description": "Versioned source of truth for what features exist in a deployment (docs/feature-permissions-spec.md). Keys are FGA object ids; grants are DEFAULT usersets — direct user/team grants are runtime data, never manifest entries.",
+  "description": "Versioned source of truth for what features exist in a deployment (docs/feature-permissions-spec.md). Keys are FGA object ids; grants are DEFAULT usersets \u2014 direct user/team grants are runtime data, never manifest entries.",
   "type": "object",
-  "required": ["features"],
+  "required": [
+    "features"
+  ],
   "additionalProperties": false,
   "properties": {
     "features": {
       "type": "object",
-      "description": "Map of feature key → definition. Key format: domain.verb (lowercase, dot-separated); the key IS the FGA object id (feature:<key>). Keys never name object instances — per-object questions belong to resource relations.",
+      "description": "Map of feature key \u2192 definition. Key format: domain.verb (lowercase, dot-separated); the key IS the FGA object id (feature:<key>). Keys never name object instances \u2014 per-object questions belong to resource relations.",
       "propertyNames": {
         "pattern": "^[a-z0-9]+(\\.[a-z0-9_]+)+$"
       },
@@ -34,7 +36,10 @@
               "type": "string",
               "oneOf": [
                 {
-                  "enum": ["organization#member", "organization#admin"],
+                  "enum": [
+                    "organization#member",
+                    "organization#admin"
+                  ],
                   "description": "Platform org usersets (resolved against the instance's single org at reconcile time)."
                 },
                 {
@@ -42,6 +47,52 @@
                   "description": "A product-defined custom role's assignees (role:<name>#assignee)."
                 }
               ]
+            }
+          },
+          "scope": {
+            "type": "array",
+            "description": "Declared reach per resource type (spec s11): references to REGISTERED resolvers, never inline logic. One entry per resource_type.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "resource_type",
+                "resolver"
+              ],
+              "properties": {
+                "resource_type": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]{0,63}$"
+                },
+                "resolver": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][a-z0-9_]{0,63}$"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "areas": {
+      "type": "object",
+      "description": "Per-area declared mode vocabulary (spec s11): keys with >=3 segments must have their prefix here and their final segment in modes. Verb modes are legitimate; object instances are not.",
+      "propertyNames": {
+        "pattern": "^[a-z0-9]+(\\.[a-z0-9_]+)+$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "modes"
+        ],
+        "properties": {
+          "modes": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9_]+$"
             }
           }
         }

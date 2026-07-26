@@ -38,6 +38,19 @@ class FeatureGateMismatch(RuntimeError):
     """A require_feature() key is absent from the manifest — fail loud."""
 
 
+def validate_declared_scopes(manifest: FeatureManifest | None) -> None:
+    """Every manifest-declared (resource_type, resolver) must be
+    registered (spec §11) — a missing resolver would be a silently
+    empty scope, so it fails the boot like a typo'd gate key."""
+    from asunset_core.features import scope_registry
+
+    from asunset_api.authz_scopes import register_scopes
+
+    register_scopes()
+    if manifest is not None:
+        scope_registry().validate_manifest(manifest.declared_resolvers())
+
+
 def validate_declared_gates(manifest: FeatureManifest | None) -> None:
     """Every require_feature key must exist in the manifest (feat-ops 1).
 
@@ -91,6 +104,7 @@ async def run_feature_reconcile(
     no org yet."""
     manifest = _load(settings)
     validate_declared_gates(manifest)
+    validate_declared_scopes(manifest)
     if manifest is None:
         return None
 
