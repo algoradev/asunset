@@ -145,9 +145,11 @@ use the real thing: `asunset_core.testing.ephemeral_openfga(YOUR_MODEL)`
 Deploy runs reconcile automatically (startup + after bootstrap); apply
 manifest edits to a running instance with
 `POST /platform/features/reconcile` (platform_admin; `dry_run: true`
-previews). Runtime grants (roles, teams, users) are the v1.1 surface —
-until it lands, features needing them wait; hand-writing FGA tuples is
-never the interim.
+previews). Runtime grants (roles, teams, users), freeze/unfreeze, and
+the provenance listing are the v1.1 surface — shipped; see
+`docs/feature-permissions-spec.md` §10 and
+`docs/runbooks/feature-freeze.md`. Hand-writing FGA tuples is never
+the path.
 
 ## The whole loop, one screen
 
