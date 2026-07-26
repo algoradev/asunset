@@ -575,3 +575,215 @@ async def unassign_role(
         payload={"user_id": str(user_id), "noop": noop},
     )
     return {"unassigned": not noop, "noop": noop}
+
+
+# --- point-in-time matrix export (compliance artifact, review #2) ----------
+
+
+def build_runtime_matrix_md(
+    manifest: FeatureManifest,
+    grants: list[FeatureGrant],
+    freezes: dict[str, FeatureFreeze],
+    assignments: list[RoleAssignment],
+    generated_at: str,
+) -> str:
+    """Pure builder: the LIVE feature→grant→who matrix with provenance —
+    the dated artifact a compliance review asks for. Divergence from the
+    design-time matrix (docs/access-matrix.md) is expected and IS the
+    interesting content: the runtime-grants section is precisely
+    'granted beyond design defaults'."""
+    by_key: dict[str, list[FeatureGrant]] = {}
+    for g in grants:
+        by_key.setdefault(g.feature_key, []).append(g)
+    lines = [
+        f"# Access matrix — runtime state, generated {generated_at}",
+        "",
+        "Design-time baseline: docs/access-matrix.md (generated from the",
+        "manifest). Everything under 'Runtime grants' is beyond-design by",
+        "definition — provenance answers who granted it and when.",
+        "",
+        "| Capability | State | Default grants | Runtime grants (provenance) |",
+        "|---|---|---|---|",
+    ]
+    for f in manifest.features:
+        state = "enabled"
+        if not f.enabled:
+            state = "DISABLED"
+        if f.key in freezes:
+            state = f"FROZEN ({freezes[f.key].reason or 'no reason recorded'})"
+        defaults = ", ".join(f.grants) if f.grants else "—"
+        runtime = "; ".join(
+            f"{g.grantee_type}:{g.grantee_id} (by {g.granted_by} at "
+            f"{g.granted_at.isoformat()})"
+            for g in by_key.get(f.key, [])
+        ) or "—"
+        lines.append(f"| `{f.key}` | {state} | {defaults} | {runtime} |")
+
+    lines += ["", "## Role assignments", ""]
+    by_role: dict[str, list[RoleAssignment]] = {}
+    for a in assignments:
+        by_role.setdefault(a.role_name, []).append(a)
+    if not by_role:
+        lines.append("(none)")
+    for role, rows in sorted(by_role.items()):
+        for a in rows:
+            lines.append(
+                f"- `{role}` ← user:{a.user_id} (by {a.assigned_by} at "
+                f"{a.assigned_at.isoformat()})"
+            )
+    return "\n".join(lines) + "\n"
+
+
+@router.get("/features/matrix")
+async def export_runtime_matrix(
+    principal: Principal = Depends(get_current_principal),
+    org: OrgContext = Depends(get_current_org),
+    session: AsyncSession = Depends(get_db),
+):  # noqa: ANN201 — PlainTextResponse
+    from fastapi.responses import PlainTextResponse
+
+    _require_operator(principal, org)
+    manifest = _manifest_or_503()
+    freezes = {
+        f.feature_key: f
+        for f in (
+            await session.execute(
+                select(FeatureFreeze).where(FeatureFreeze.unfrozen_at.is_(None))
+            )
+        ).scalars()
+    }
+    grants = list(
+        (
+            await session.execute(
+                select(FeatureGrant).where(FeatureGrant.revoked_at.is_(None))
+            )
+        ).scalars()
+    )
+    assignments = list(
+        (
+            await session.execute(
+                select(RoleAssignment).where(RoleAssignment.revoked_at.is_(None))
+            )
+        ).scalars()
+    )
+    md = build_runtime_matrix_md(
+        manifest, grants, freezes, assignments, datetime.now(UTC).isoformat()
+    )
+    return PlainTextResponse(md, media_type="text/markdown")
+
+
+# --- explain: why does X (not) have this feature ---------------------------
+
+
+@router.get("/features/{key}/explain")
+async def explain_feature_access(
+    key: str,
+    user_id: UUID,
+    principal: Principal = Depends(get_current_principal),
+    org: OrgContext = Depends(get_current_org),
+    session: AsyncSession = Depends(get_db),
+    authorizer: Authorizer = Depends(get_authorizer),
+) -> dict:
+    """The debugging inverse of provenance: walks every path that could
+    grant (or block) the user, then gives the authoritative answer. The
+    ten-minute tuple-spelunk as one call (DX list item 4)."""
+    from asunset_core.db.models import OrgMember, RoleAssignment as RA, TeamMember
+
+    _require_operator(principal, org)
+    manifest = _manifest_or_503()
+    steps: list[dict] = []
+
+    def step(name: str, outcome: str, detail: str) -> None:
+        steps.append({"check": name, "outcome": outcome, "detail": detail})
+
+    if key not in manifest.keys:
+        step("manifest", "blocked", f"{key} is not declared — no shadow features")
+        return {"allowed": False, "steps": steps}
+    f = next(x for x in manifest.features if x.key == key)
+    step("manifest", "ok", "declared")
+    if not f.enabled:
+        step("enabled", "blocked", "enabled: false (decommissioned — grants were swept)")
+    else:
+        step("enabled", "ok", "enabled")
+    frozen = await _active_freeze(session, key)
+    if frozen is not None:
+        step("freeze", "blocked", f"FROZEN since {frozen.frozen_at.isoformat()} "
+             f"({frozen.reason or 'no reason'}) — deny-all-now, grants preserved")
+    else:
+        step("freeze", "ok", "not frozen")
+
+    # default grants vs the user's standing
+    membership = (
+        await session.execute(
+            select(OrgMember).where(OrgMember.user_id == user_id)
+        )
+    ).scalars().first()
+    for grant in f.grants:
+        if grant == "organization#member":
+            step("default:organization#member",
+                 "grants" if membership else "not-applicable",
+                 "user is an org member" if membership else "user has no org membership")
+        elif grant == "organization#admin":
+            is_admin = membership is not None and membership.role.value == "admin"
+            step("default:organization#admin",
+                 "grants" if is_admin else "not-applicable",
+                 "user is an org admin" if is_admin else "user is not an org admin")
+        elif grant.startswith("role:"):
+            role = grant.split(":", 1)[1].split("#", 1)[0]
+            assigned = (
+                await session.execute(
+                    select(RA).where(
+                        RA.role_name == role,
+                        RA.user_id == user_id,
+                        RA.revoked_at.is_(None),
+                    )
+                )
+            ).scalars().first()
+            step(f"default:{grant}",
+                 "grants" if assigned else "not-applicable",
+                 f"user holds role {role}" if assigned
+                 else f"user is not an assignee of role {role} — "
+                      f"POST /platform/roles/{role}/assignees would grant it")
+    if not f.grants:
+        step("defaults", "not-applicable", "runtime-only feature (grants: [])")
+
+    # runtime grants
+    user_grant = (
+        await session.execute(
+            select(FeatureGrant).where(
+                FeatureGrant.feature_key == key,
+                FeatureGrant.grantee_type == "user",
+                FeatureGrant.grantee_id == user_id,
+                FeatureGrant.revoked_at.is_(None),
+            )
+        )
+    ).scalars().first()
+    if user_grant is not None:
+        step("runtime:user-grant", "grants",
+             f"direct grant by {user_grant.granted_by} at {user_grant.granted_at.isoformat()}")
+    team_ids = [
+        r[0] for r in (
+            await session.execute(
+                select(TeamMember.team_id).where(TeamMember.user_id == user_id)
+            )
+        ).all()
+    ]
+    for tg in (
+        await session.execute(
+            select(FeatureGrant).where(
+                FeatureGrant.feature_key == key,
+                FeatureGrant.grantee_type == "team",
+                FeatureGrant.revoked_at.is_(None),
+            )
+        )
+    ).scalars():
+        if tg.grantee_id in team_ids:
+            step("runtime:team-grant", "grants",
+                 f"via team {tg.grantee_id} (granted by {tg.granted_by})")
+
+    # the authoritative answer (frozen wins over everything)
+    fga = await authorizer.check(f"user:{user_id}", "can_use", f"feature:{key}")
+    allowed = fga and frozen is None and f.enabled
+    step("authorizer", "grants" if fga else "not-applicable",
+         f"FGA check(user:{user_id}, can_use, feature:{key}) = {fga}")
+    return {"allowed": allowed, "steps": steps}

@@ -215,3 +215,27 @@ async def test_removed_key_with_grants_refuses_then_prune_overrides(
     await authz.write(
         deletes=[Tuple(user="user:someone", relation="can_use", object="feature:ops.gone")]
     )
+
+
+def test_runtime_matrix_builder() -> None:
+    """Pure builder for the point-in-time compliance export."""
+    from types import SimpleNamespace
+    from asunset_api.routers.features import build_runtime_matrix_md
+
+    m = parse_manifest(
+        {"features": {"a.live": {"grants": ["organization#member"]},
+                      "a.dead": {"grants": [], "enabled": False}}}
+    )
+    g = SimpleNamespace(
+        feature_key="a.live", grantee_type="user", grantee_id="u-1",
+        granted_by="admin-1",
+        granted_at=datetime(2026, 7, 26, tzinfo=UTC),
+    )
+    fz = SimpleNamespace(feature_key="a.live", reason="cost spike")
+    ra = SimpleNamespace(role_name="ops", user_id="u-2", assigned_by="admin-1",
+                         assigned_at=datetime(2026, 7, 26, tzinfo=UTC))
+    md = build_runtime_matrix_md(m, [g], {"a.live": fz}, [ra], "2026-07-26T00:00:00")
+    assert "FROZEN (cost spike)" in md
+    assert "user:u-1 (by admin-1" in md          # provenance
+    assert "| `a.dead` | DISABLED |" in md
+    assert "`ops` ← user:u-2" in md
