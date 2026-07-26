@@ -33,7 +33,12 @@ a human admin is a dev/staging affair, and these are the cliffs:
 
         curl -s -X POST .../token -d "grant_type=password&client_id=asunset-web&username=alice&password=...&totp=123456&scope=openid"
 
-3. **Recovery when locked out** (dev only): the Keycloak master admin
+3. **The dev-realm TOTP ping-pong** (recurring in exercises): deleting a
+   platform_admin's OTP credential makes keycloak-init re-add
+   CONFIGURE_TOTP on its next run — "Account is not fully set up" on
+   direct grants until cleared again. On real deployments the human
+   enrolls once and this never recurs; on dev realms, expect the loop.
+4. **Recovery when locked out** (dev only): the Keycloak master admin
    (`KEYCLOAK_ADMIN` / `KEYCLOAK_ADMIN_PASSWORD` in `.env`) can reset a
    user's password, clear `requiredActions`, and delete an OTP
    credential via the admin console at `http://localhost:8080/admin`
