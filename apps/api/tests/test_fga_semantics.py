@@ -233,3 +233,12 @@ async def test_bootstrap_is_idempotent_on_store(fga_server: FgaServer) -> None:
     )
     assert store_id2 == fga_server.store_id
     assert model_id2  # a pinned model id always comes back
+
+
+async def test_list_users_expands_usersets(authz: OpenFGAAuthorizer) -> None:
+    """The membership-projection read (axon's comms reconciler): who
+    holds can_view on n2 — the team#member editor userset must expand
+    to concrete users, which read_tuples can never do."""
+    users = await authz.list_users(N2, "can_view")
+    assert OWNER in users and TEAM_M in users
+    assert OUTSIDER not in users

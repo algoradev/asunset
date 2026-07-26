@@ -231,6 +231,9 @@ class SessionScopedAuthorizer:
     async def explain_note_access(self, user: str, obj: str):  # noqa: ANN201
         return await self._inner.explain_note_access(user, obj)
 
+    async def list_users(self, *args: Any, **kwargs: Any) -> Any:
+        raise PermissionError("agent sessions cannot enumerate grantees")
+
     async def read_tuples(self, *args: Any, **kwargs: Any) -> Any:
         raise PermissionError("agent sessions cannot read authorization tuples")
 

@@ -103,6 +103,16 @@ class StaticAuthorizer:
         }
         return sorted(out)
 
+    async def list_users(
+        self, object: str, relation: str, user_type: str = "user"
+    ) -> list[str]:
+        out = {
+            u for (u, r, o) in self.allowed
+            if o == object and r in ("*", relation)
+            and ":" in u and u.split(":", 1)[0] == user_type and "#" not in u
+        }
+        return sorted(out)
+
     async def read_tuples(
         self,
         *,

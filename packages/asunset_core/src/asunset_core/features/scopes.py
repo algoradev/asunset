@@ -42,6 +42,9 @@ class AuthorizerReader:
     async def list_objects(self, user: str, relation: str, object_type: str) -> list[str]:
         return await self._a.list_objects(user, relation, object_type)
 
+    async def list_users(self, object: str, relation: str, user_type: str = "user") -> list[str]:
+        return await self._a.list_users(object, relation, user_type)
+
     async def read_tuples(self, **kwargs: Any) -> Any:
         return await self._a.read_tuples(**kwargs)
 

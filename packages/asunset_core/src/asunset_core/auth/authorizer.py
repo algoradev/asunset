@@ -113,6 +113,10 @@ class Authorizer(Protocol):
         self, user: str, relation: str, object_type: str
     ) -> list[str]: ...
 
+    async def list_users(
+        self, object: str, relation: str, user_type: str = "user"
+    ) -> list[str]: ...
+
     async def read_tuples(
         self,
         *,
@@ -165,6 +169,45 @@ class OpenFGAAuthorizer:
         req = ClientListObjectsRequest(user=user, relation=relation, type=object_type)
         resp = await self._client.list_objects(req)
         return list(resp.objects or [])
+
+    async def list_users(
+        self, object: str, relation: str, user_type: str = "user"
+    ) -> list[str]:
+        """Who holds `relation` on `object` — WITH userset expansion
+        (team#member/org#member routes resolve to concrete users), which
+        is what a membership-projection reconciler actually needs.
+        Implemented against the stable REST ListUsers endpoint; the
+        SDK's surface for it has churned across versions."""
+        import httpx
+
+        # SDK quirk: OpenFgaClient.configuration is None; the live config
+        # hangs off the inner ApiClient.
+        cfg = getattr(getattr(self._client, "_api_client", None), "configuration", None)             or getattr(self._client, "configuration", None)
+        api_url = getattr(cfg, "api_url", None) or getattr(cfg, "api_host", "")
+        token = ""
+        creds = getattr(cfg, "credentials", None)
+        if creds is not None and getattr(creds, "configuration", None) is not None:
+            token = creds.configuration.api_token or ""
+        obj_type, _, obj_id = object.partition(":")
+        payload = {
+            "authorization_model_id": self._model_id,
+            "object": {"type": obj_type, "id": obj_id},
+            "relation": relation,
+            "user_filters": [{"type": user_type}],
+        }
+        async with httpx.AsyncClient(
+            base_url=api_url,
+            headers={"Authorization": f"Bearer {token}"} if token else {},
+            timeout=10.0,
+        ) as client:
+            resp = await client.post(f"/stores/{self._store_id}/list-users", json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+        out = []
+        for u in data.get("users", []):
+            if "object" in u:
+                out.append(f"{u['object']['type']}:{u['object']['id']}")
+        return sorted(out)
 
     async def read_tuples(
         self,
