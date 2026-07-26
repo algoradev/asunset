@@ -37,6 +37,8 @@ func main() {
 		cmdRestart(os.Args[2:])
 	case "logs":
 		cmdLogs(os.Args[2:])
+	case "doctor":
+		cmdDoctor(os.Args[2:])
 	case "ps":
 		cmdPs()
 	case "-h", "--help", "help":
@@ -61,6 +63,7 @@ func printHelp() {
 	fmt.Println("  down           Stop the stack (docker compose down)")
 	fmt.Println("  restart [svc]  Restart one service or the whole stack")
 	fmt.Println("  logs [svc]     Tail logs (all services or just one)")
+	fmt.Println("  doctor [--json] Preflight self-checks (.env coherence + live stack probes)")
 	fmt.Println("  ps             Show running services")
 	fmt.Println("  help           Show this help")
 	fmt.Println()
