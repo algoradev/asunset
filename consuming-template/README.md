@@ -1,5 +1,11 @@
 # consuming-template
 
+> **The complete consumer guide lives at
+> [`docs/consuming-asunset.md`](../docs/consuming-asunset.md)** in the
+> asunset repo — vendoring rulings, compose topology, features,
+> sessions, operations. This README is the deep walkthrough of the
+> scaffold itself.
+
 Reference boilerplate for a product built on asunset. Copy this directory
 into a new private repo, subtree the asunset core as `vendor/asunset/`,
 customize the resource type, and ship.

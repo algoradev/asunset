@@ -119,6 +119,12 @@ Swapping to Graylog / ELK / Splunk is a sink change in `infra/vector/wazuh.toml`
 
 ## Build a product on top of this
 
+**Full guide: [`docs/consuming-asunset.md`](docs/consuming-asunset.md)** —
+vendoring, compose topology (incl. the two-Postgres ruling and
+multi-service products), configuration, backend/frontend patterns,
+features/sessions, operations, and the vendor-bump runbook. The short
+version:
+
 **Use the `consuming-template/` scaffold.** It's the supported path and
 keeps your product code outside the asunset subtree, so routine
 upstream pulls don't touch your work.
@@ -156,6 +162,7 @@ asunset/
 ├── .env.example
 ├── install.sh                     # bootstrap docker + go + asunset CLI on a fresh host
 ├── docs/                          # canonical contracts + specs + worked examples
+│   ├── consuming-asunset.md       #   THE consumer guide — start here to build a product
 │   ├── identity-contract.md       #   ratified platform identity contract (D1–D7)
 │   ├── feature-permissions-spec.md#   feature system spec (v1 → v1.1 → §11 capability model)
 │   ├── session-token-mint-spec.md #   agent session tokens (D4)
