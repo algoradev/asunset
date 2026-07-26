@@ -171,3 +171,24 @@ Rules carried forward: `{key}` must exist in the manifest (no shadow features); 
 3. **This is a permission system, not a flag service** — no percentage rollouts, no per-request config; if flag semantics are ever needed, shop for a flag tool.
 
 Out of scope for v1.1 (unchanged): admin UI (API-first), conditional-tuple trials (D4 end-state).
+
+---
+
+## 11. Capability model — feature areas, capabilities, resource scopes [PROPOSAL]
+
+From Avi's requirement (2026-07-26, via caliper's exercise-1 addendum): sophisticated consumers need "main features with different sub-feature levels per role/persona." Caliper's proposed shape: **feature area** (`notes.export`) → **capabilities** (`notes.export.basic` / `.full` / `.org_wide` / `.configure`) → each with a **resource scope** → the access **matrix** as a *generated projection* (capability × persona × scope) used as contract and test oracle.
+
+Platform-owner assessment:
+
+**Already expressible today.** Capabilities are just feature keys — `notes.export.basic` and `notes.export.org_wide` are two manifest entries with different grants; multi-capability gating needs zero new machinery, only the naming convention. This *settles the juniper/relay key-segment tension in favor of multi-segment*: sub-segments name **verb modes**, which is exactly the legitimate use; the ban stays on object *instances*.
+
+**The one genuinely new primitive: declared resource scopes.** Today a capability's scope (which objects the handler touches) lives silently in handler code — which is why `if admin: include_all_notes()` can make any matrix lie. The proposal makes it structural: a product registers **named scope resolvers** (`visible_notes`, `owned`, `team`, `org_wide`, `custom:<name>` — each a documented query pattern over the existing Authorizer/DB), the manifest declares `scope:` per capability, and handlers *consume the resolver* rather than open-coding the query. The hidden branch then can't hide: privileged widening = a second capability with a wider declared scope.
+
+**Generated artifacts.** From manifest (+ scope declarations): (a) the Act-4 access matrix as a *generated, reviewable* projection — the design-time twin of kestrel's runtime point-in-time export; (b) per-matrix-row **test skeletons** (denied/allowed/scope assertions) that *fail until filled* — never auto-passing assertions, which would be theater. Registration prompting (area → capabilities → grants → scope → tests) folds into the `asunset feature new` scaffold from the DX list.
+
+**Boundaries held (non-negotiable):**
+1. Scope resolvers are **named query patterns, not a second authorization system** — every decision still flows through the Authorizer port; a resolver that invents its own permission semantics is a bug, not an extension.
+2. **UI state stays out of the manifest** — it's a matrix *column* for design review, not manifest data; the manifest remains deployment authorization policy (relay's category ruling).
+3. The **hidden-branch assumption is stated as a prerequisite**: registration works when business logic exposes clean capability/scope boundaries; retrofitting a tangled codebase is refactoring work the tool can reveal (matrix vs reality) but not replace.
+
+**Sequencing:** rides ON TOP of v1.1, not instead of it — runtime grants/freeze are prerequisites for capability-level scoping of real personas. Proposed order: v1.1 → scope-resolver primitive + matrix generation → registration scaffold. Needs the three-lens review (or Avi's direct ratification) before build.
