@@ -93,3 +93,25 @@ def test_declared_only_feature_has_no_default_tuples() -> None:
     m = parse_manifest(raw)
     assert "mcp.write_project" in m.keys
     assert not any(o == "feature:mcp.write_project" for (_, _, o) in m.desired_tuples(ORG))
+
+
+def test_codegen_cli_works_with_areas(tmp_path) -> None:
+    # Exercise-3 regression: running codegen AS A SCRIPT with an areas:
+    # manifest crashed (entrypoint sat above areas_python's def, so
+    # script-mode executed main() before the helper existed). Pin the
+    # script path, not just the import path.
+    import subprocess
+    import sys
+
+    manifest = tmp_path / "features.yaml"
+    manifest.write_text(
+        "areas:\n  a.b:\n    modes: [c]\n"
+        "features:\n  a.b.c:\n    grants: [organization#member]\n"
+    )
+    out_py = tmp_path / "gen.py"
+    subprocess.run(
+        [sys.executable, "-m", "asunset_core.features.codegen",
+         str(manifest), "--py", str(out_py)],
+        check=True, capture_output=True,
+    )
+    assert "FEATURE_AREAS" in out_py.read_text()
