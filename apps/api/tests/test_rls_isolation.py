@@ -36,6 +36,7 @@ from .conftest import APP_DB_USER, SeededDb
 TENANT_TABLES = (
     "organization", "team", "org_member", "team_member", "note", "audit_event",
     "agent_session",  # added in migration 0005 (D4 mint)
+    "feature_grant", "role_assignment", "feature_freeze",  # 0006 (v1.1)
 )
 
 

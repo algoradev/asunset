@@ -133,7 +133,7 @@ Denials are audited with the standard actor snapshot — feature denials become 
 
 ---
 
-## 10. Feature operations (v1.1) — runtime-grants surface [REVIEW-CONSOLIDATED, ready to build]
+## 10. Feature operations (v1.1) — runtime-grants surface [SHIPPED 2026-07-26]
 
 Reviewed adversarially by kestrel (ops), relay (consumer/portability), and juniper (generalization) — thread b999a0d238e5, 2026-07-25. Unanimous: cycle-A (manifest-default) features are production-shaped today; anything runtime-granular waits for v1.1. **Hard rule (juniper, effective immediately): no hand-tuple-writing as interim practice — if the surface doesn't exist, the feature waits.**
 

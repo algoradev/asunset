@@ -43,6 +43,12 @@ class EventType(str, enum.Enum):
 
     # Feature-registration lifecycle (feature spec / feat-ops).
     FEATURES_RECONCILED = "features.reconciled"
+    FEATURE_GRANTED = "feature.granted"
+    FEATURE_REVOKED = "feature.revoked"
+    FEATURE_FROZEN = "feature.frozen"
+    FEATURE_UNFROZEN = "feature.unfrozen"
+    ROLE_ASSIGNED = "role.assigned"
+    ROLE_UNASSIGNED = "role.unassigned"
 
     # Agent sessions (D4 mint) — lifecycle of scoped, attributable
     # agent credentials derived from a human login.

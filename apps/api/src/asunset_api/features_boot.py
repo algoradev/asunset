@@ -102,7 +102,19 @@ async def run_feature_reconcile(
         )
         return None
 
-    return await reconcile_features(authorizer, manifest, org_id, prune=prune, dry_run=dry_run)
+    # Bookkeeping index (v1.1): every feature key that ever carried a
+    # runtime grant — closes the orphan hole for keys removed from the
+    # manifest (admin/RLS-free read, same rationale as the org lookup).
+    from asunset_core.db.models import FeatureGrant
+
+    factory = get_admin_session_factory()
+    async with factory() as session:
+        result = await session.execute(select(FeatureGrant.feature_key).distinct())
+        known = {row[0] for row in result.all()}
+
+    return await reconcile_features(
+        authorizer, manifest, org_id, prune=prune, dry_run=dry_run, known_extra_keys=known
+    )
 
 
 async def reconcile_features_startup(authorizer: Authorizer, settings: Settings) -> None:

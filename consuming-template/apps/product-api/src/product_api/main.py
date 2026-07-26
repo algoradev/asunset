@@ -26,6 +26,7 @@ from sqlalchemy import text
 
 # Platform HTTP surface — imported from asunset_api, mounted as-is.
 from asunset_api.routers import audit as audit_router
+from asunset_api.routers import features as features_router
 from asunset_api.routers import orgs as orgs_router
 from asunset_api.routers import platform as platform_router
 from asunset_api.routers import teams as teams_router
@@ -120,6 +121,7 @@ def create_app() -> FastAPI:
     app.include_router(teams_router.router)
     app.include_router(users_router.router)
     app.include_router(audit_router.router)
+    app.include_router(features_router.router)
 
     # Your product's routes.
     app.include_router(report_router)

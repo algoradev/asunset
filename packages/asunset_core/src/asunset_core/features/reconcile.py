@@ -30,6 +30,12 @@ def _is_managed(user: str) -> bool:
     return user.startswith(_MANAGED_USER_PREFIXES) and "#" in user
 
 
+class ReconcileRefused(RuntimeError):
+    """Tombstone enforcement (spec §10): a key was REMOVED from the
+    manifest while grants on it are still discoverable. Retire via
+    enabled:false (sweeps) first; prune=True is the explicit override."""
+
+
 @dataclass
 class FeatureReconcileReport:
     added: list[tuple[str, str, str]] = field(default_factory=list)
@@ -51,6 +57,7 @@ async def reconcile_features(
     *,
     prune: bool = False,
     dry_run: bool = False,
+    known_extra_keys: set[str] | None = None,
 ) -> FeatureReconcileReport:
     """dry_run computes the full report (would-add / orphans /
     would-sweep / would-prune) WITHOUT writing — the read-only drift
@@ -94,10 +101,12 @@ async def reconcile_features(
 
     disabled_objects = {f"feature:{k}" for k in manifest.disabled_keys}
     current: set[tuple[str, str, str]] = set()
-    for f in manifest.features:
-        if not f.enabled:
-            continue
-        for t in await authorizer.read_tuples(object=f"feature:{f.key}"):
+    # known_extra_keys: the bookkeeping index (runtime grants + roles) —
+    # closes the v1 orphan hole: grants on keys REMOVED from the manifest
+    # become discoverable because the bookkeeping remembers the objects.
+    read_keys = {f.key for f in manifest.features if f.enabled} | (known_extra_keys or set())
+    for key in sorted(read_keys):
+        for t in await authorizer.read_tuples(object=f"feature:{key}"):
             current.add((t.user, t.relation, t.object))
     for userset in (f"organization:{org_id}#member", f"organization:{org_id}#admin"):
         for t in await authorizer.read_tuples(user=userset, object="feature:"):
@@ -125,6 +134,21 @@ async def reconcile_features(
             "features.orphan_grant",
             user=u, relation=r, object=o,
             detail="not in manifest — flag only; pass prune=True to remove",
+        )
+
+    # Tombstone enforcement: orphans on keys ABSENT from the manifest
+    # (not merely changed grants on surviving keys) refuse the reconcile
+    # unless prune explicitly overrides — retirement is a transition
+    # (enabled:false first), never a disappearance.
+    removed_key_orphans = {
+        o for o in orphans if o[2].removeprefix("feature:") not in manifest.keys
+    }
+    if removed_key_orphans and not prune and not dry_run:
+        keys = sorted({o[2] for o in removed_key_orphans})
+        raise ReconcileRefused(
+            f"keys removed from the manifest still carry grants: {keys} — "
+            f"retire via enabled:false first (sweeps grants), or pass prune=True "
+            f"as the explicit removal override"
         )
 
     if prune and orphans:

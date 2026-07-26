@@ -12,12 +12,17 @@ from asunset_core.features.manifest import (
     load_manifest,
     parse_manifest,
 )
-from asunset_core.features.reconcile import FeatureReconcileReport, reconcile_features
+from asunset_core.features.reconcile import (
+    FeatureReconcileReport,
+    ReconcileRefused,
+    reconcile_features,
+)
 
 __all__ = [
     "FeatureDef",
     "FeatureManifest",
     "FeatureReconcileReport",
+    "ReconcileRefused",
     "ManifestError",
     "load_manifest",
     "parse_manifest",

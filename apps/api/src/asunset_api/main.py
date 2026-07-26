@@ -16,6 +16,7 @@ from asunset_core.logging import configure_logging, get_logger
 from asunset_core.middleware.correlation import CorrelationIdMiddleware
 from asunset_core.notifications import make_email_service
 from asunset_api.routers import audit as audit_router
+from asunset_api.routers import features as features_router
 from asunset_api.routers import notes as notes_router
 from asunset_api.routers import orgs as orgs_router
 from asunset_api.routers import platform as platform_router
@@ -145,6 +146,7 @@ def create_app() -> FastAPI:
     app.include_router(notes_router.router)
     app.include_router(users_router.router)
     app.include_router(audit_router.router)
+    app.include_router(features_router.router)
 
     return app
 

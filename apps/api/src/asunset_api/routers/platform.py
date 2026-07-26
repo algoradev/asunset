@@ -398,13 +398,19 @@ async def revoke_session(
 async def my_features(
     principal: Principal = Depends(get_current_principal),
     authorizer: Authorizer = Depends(get_authorizer),
+    db: AsyncSession = Depends(get_db),
 ) -> list[str]:
     """Feature keys the caller may use — drives frontend menu/route
     gating (UX only; the API-side require_feature check is the control).
-    For agent sessions the list is additionally filtered by the
-    session's declared grant subset."""
+    Frozen features are excluded (deny-all-now); for agent sessions the
+    list is additionally filtered by the session's grant subset."""
+    from asunset_api.routers.features import active_freeze_keys
+
     objs = await authorizer.list_objects(principal.fga_user(), "can_use", "feature")
-    return sorted(o.removeprefix("feature:") for o in objs)
+    frozen = await active_freeze_keys(db)
+    return sorted(
+        k for k in (o.removeprefix("feature:") for o in objs) if k not in frozen
+    )
 
 
 class FeatureReconcileIn(BaseModel):
@@ -425,7 +431,7 @@ class FeatureReconcileOut(BaseModel):
 @router.post("/features/reconcile", response_model=FeatureReconcileOut)
 async def reconcile_features_endpoint(
     body: FeatureReconcileIn,
-    principal: Principal = Depends(require_platform_admin),
+    principal: Principal = Depends(get_current_principal),
     authorizer: Authorizer = Depends(get_authorizer),
     audit: AuditSink = Depends(get_audit_sink),
 ) -> FeatureReconcileOut:
@@ -436,6 +442,14 @@ async def reconcile_features_endpoint(
     from asunset_api.config import get_settings as _gs
     from asunset_api.features_boot import run_feature_reconcile
 
+    # dry_run is a READ — platform_support (the doctor/on-call identity,
+    # held by the asunset-api service account per init.sh) may call it.
+    # Mutating runs stay platform_admin-only.
+    if body.dry_run:
+        if not (principal.is_platform_admin or principal.is_platform_support):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "operator role required")
+    elif not principal.is_platform_admin:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "platform_admin required")
     try:
         report = await run_feature_reconcile(
             authorizer, _gs(), prune=body.prune, dry_run=body.dry_run

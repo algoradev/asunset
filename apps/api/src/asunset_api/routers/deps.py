@@ -272,7 +272,33 @@ def require_feature(key: str):  # noqa: ANN201 — returns a FastAPI dependency
         principal: Principal = Depends(get_current_principal),
         authz: Authorizer = Depends(get_authorizer),
         sink: AuditSink = Depends(get_audit_sink),
+        session: AsyncSession = Depends(get_db),
     ) -> None:
+        # Incident freeze (v1.1): deny-all-now regardless of grants, with
+        # a distinct message so UIs can render paused-not-ungranted.
+        from asunset_core.db.models import FeatureFreeze
+
+        frozen = (
+            await session.execute(
+                select(FeatureFreeze).where(
+                    FeatureFreeze.feature_key == key,
+                    FeatureFreeze.unfrozen_at.is_(None),
+                ).limit(1)
+            )
+        ).scalars().first()
+        if frozen is not None:
+            await sink.emit(
+                EventType.ACCESS_DENIED,
+                action="feature_check",
+                resource_type="feature",
+                resource_id=key,
+                permission="can_use",
+                success=False,
+                payload={"frozen": True},
+            )
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, f"feature {key} is temporarily unavailable"
+            )
         allowed = await authz.check(principal.fga_user(), "can_use", f"feature:{key}")
         if not allowed:
             await sink.emit(

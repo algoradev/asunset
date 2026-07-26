@@ -199,3 +199,88 @@ class AgentSession(Base):
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class FeatureGrant(Base):
+    """Bookkeeping for RUNTIME feature grants (v1.1 surface).
+
+    The FGA tuple is the authorization truth; this row is the provenance
+    record (who granted, when, revoked when) AND the object index that
+    lets reconcile enumerate feature grants the FGA Read API can't
+    discover. Dual-written with the tuple; revocation sets revoked_at
+    (history preserved — the app role has no DELETE)."""
+
+    __tablename__ = "feature_grant"
+
+    id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=uuid4)
+    org_id: Mapped[UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("organization.id", ondelete="CASCADE"), nullable=False
+    )
+    feature_key: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    grantee_type: Mapped[str] = mapped_column(String(10), nullable=False)  # user | team
+    grantee_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
+    granted_by: Mapped[UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("app_user.id", ondelete="SET NULL"), nullable=True
+    )
+    granted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_by: Mapped[UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("app_user.id", ondelete="SET NULL"), nullable=True
+    )
+
+
+class RoleAssignment(Base):
+    """Bookkeeping for custom-role membership (role:<name>#assignee).
+
+    Same dual-write/provenance/history posture as FeatureGrant. 'Who
+    holds billing_ops right now' is answered here, never by reading
+    tuples (review #2, juniper #4)."""
+
+    __tablename__ = "role_assignment"
+
+    id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=uuid4)
+    org_id: Mapped[UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("organization.id", ondelete="CASCADE"), nullable=False
+    )
+    role_name: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    user_id: Mapped[UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False
+    )
+    assigned_by: Mapped[UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("app_user.id", ondelete="SET NULL"), nullable=True
+    )
+    assigned_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_by: Mapped[UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("app_user.id", ondelete="SET NULL"), nullable=True
+    )
+
+
+class FeatureFreeze(Base):
+    """Incident freeze state (v1.1): deny-all-now, grants PRESERVED,
+    reversible. Active freeze = unfrozen_at IS NULL. Distinct axis from
+    the manifest's enabled:false (decommission — destructive, deploy-
+    time). require_feature consults this on every gated request."""
+
+    __tablename__ = "feature_freeze"
+
+    id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=uuid4)
+    org_id: Mapped[UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("organization.id", ondelete="CASCADE"), nullable=False
+    )
+    feature_key: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    frozen_by: Mapped[UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("app_user.id", ondelete="SET NULL"), nullable=True
+    )
+    frozen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    unfrozen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    unfrozen_by: Mapped[UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("app_user.id", ondelete="SET NULL"), nullable=True
+    )

@@ -59,6 +59,36 @@ echo "keycloak-init: asunset-api secret synced from env"
   --rolename=manage-users 2>/dev/null || true
 echo "keycloak-init: asunset-api service account has manage-users"
 
+# --- the machine operator identity (v1.1 / feature-ops) ------------------
+# The asunset-api service account IS the doctor/on-call machine identity:
+#   1. platform_support realm role → may call read-tier + freeze-tier
+#      endpoints (reconcile dry_run, feature freeze/unfreeze) — the
+#      identity contract's machines-lane, no new roles minted.
+#   2. an audience mapper on asunset-api so its client_credentials
+#      tokens carry aud=asunset-api and validate through the normal
+#      contract §5 path.
+# Token custody for 2am: the credentials are the box's own .env
+# (KEYCLOAK_API_CLIENT_ID/SECRET) — see docs/runbooks/feature-freeze.md.
+"$KCADM" add-roles -r "$KEYCLOAK_REALM" \
+  --uusername=service-account-asunset-api \
+  --rolename=platform_support 2>/dev/null || true
+echo "keycloak-init: asunset-api service account has platform_support (operator identity)"
+
+API_MAPPERS="$("$KCADM" get "clients/$API_UUID/protocol-mappers/models" -r "$KEYCLOAK_REALM" --fields name --format csv --noquotes 2>/dev/null | tr -d '\r"')"
+if echo "$API_MAPPERS" | grep -qx "audience-self"; then
+  echo "keycloak-init: asunset-api audience-self mapper already present — skipping"
+else
+  "$KCADM" create "clients/$API_UUID/protocol-mappers/models" \
+    -r "$KEYCLOAK_REALM" \
+    -s "name=audience-self" \
+    -s "protocol=openid-connect" \
+    -s "protocolMapper=oidc-audience-mapper" \
+    -s 'config."included.client.audience"=asunset-api' \
+    -s 'config."access.token.claim"=true' \
+    -s 'config."id.token.claim"=false'
+  echo "keycloak-init: asunset-api audience-self mapper added (service-account tokens validate)"
+fi
+
 # --- realm: session + OTP policy ----------------------------------------
 # --import-realm uses IGNORE_EXISTING on re-boots, so realm-export.json
 # tweaks don't propagate after first import. Push HIPAA/NYDFS knobs via

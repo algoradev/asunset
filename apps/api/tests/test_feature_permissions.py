@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import AsyncIterator
 from uuid import uuid4
 
+import pytest
 import pytest_asyncio
 
 from asunset_core.auth.authorizer import OpenFGAAuthorizer, Tuple, make_openfga_client
@@ -105,22 +106,23 @@ async def test_orphan_flagged_then_pruned_and_runtime_grants_untouched(
         {"features": {"audit.view": {"grants": ["organization#member"]}}}
     )
 
-    flagged = await reconcile_features(authz, shrunk, ORG_ID)
-    # billing.manage's org#admin grant is discoverable (org-userset read)
-    # → flagged, NOT removed. compliance.review's role grant sits on a
-    # feature REMOVED from the manifest — the documented v1 limitation:
-    # invisible to reconcile, so it neither flags nor prunes.
-    assert flagged.orphans == [
-        (f"organization:{ORG_ID}#admin", "can_use", "feature:billing.manage")
-    ]
-    assert flagged.pruned == []
+    # v1.1 tombstone enforcement: keys REMOVED from the manifest while
+    # still carrying discoverable grants REFUSE the reconcile (dry_run
+    # previews the orphans without raising; prune is the override).
+    preview = await reconcile_features(authz, shrunk, ORG_ID, dry_run=True)
+    assert (f"organization:{ORG_ID}#admin", "can_use", "feature:billing.manage") in preview.orphans
+    from asunset_core.features import ReconcileRefused
+
+    with pytest.raises(ReconcileRefused, match="billing.manage"):
+        await reconcile_features(authz, shrunk, ORG_ID)
     assert await authz.check(ADMIN, "can_use", "feature:billing.manage")
 
     pruned = await reconcile_features(authz, shrunk, ORG_ID, prune=True)
     assert len(pruned.pruned) == 1 and pruned.orphans == []
     assert not await authz.check(ADMIN, "can_use", "feature:billing.manage")
-    # The limitation, pinned so it stays a documented fact not a surprise:
-    # the removed-feature role grant survives prune.
+    # The v1 limitation (role grant on a removed feature invisible to
+    # reads) still holds WITHOUT the bookkeeping index — pinned; the
+    # index-supplied closure is covered in test_feature_ops.
     assert await authz.check(REVIEWER, "can_use", "feature:compliance.review")
 
     # The runtime user grant survived both passes — reconcile never owns it.
@@ -180,8 +182,16 @@ async def test_enabled_false_is_a_kill_switch(authz: OpenFGAAuthorizer) -> None:
 
 
 async def test_kill_switch_is_idempotent(authz: OpenFGAAuthorizer) -> None:
+    # All keys stay DECLARED (removal now refuses under the tombstone
+    # rule); only audit.view flips to disabled.
     killed = parse_manifest(
-        {"features": {"audit.view": {"grants": ["organization#member"], "enabled": False}}}
+        {
+            "features": {
+                "audit.view": {"grants": ["organization#member"], "enabled": False},
+                "billing.manage": {"grants": ["organization#admin"]},
+                "compliance.review": {"grants": ["role:compliance_reviewer#assignee"]},
+            }
+        }
     )
     first = await reconcile_features(authz, killed, ORG_ID)
     second = await reconcile_features(authz, killed, ORG_ID)
