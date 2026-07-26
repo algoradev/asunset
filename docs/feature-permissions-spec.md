@@ -174,21 +174,47 @@ Out of scope for v1.1 (unchanged): admin UI (API-first), conditional-tuple trial
 
 ---
 
-## 11. Capability model — feature areas, capabilities, resource scopes [PROPOSAL]
+## 11. Capability model — feature areas, capabilities, declared resource scopes [REVIEW-CONSOLIDATED, ready to build after v1.1]
 
-From Avi's requirement (2026-07-26, via caliper's exercise-1 addendum): sophisticated consumers need "main features with different sub-feature levels per role/persona." Caliper's proposed shape: **feature area** (`notes.export`) → **capabilities** (`notes.export.basic` / `.full` / `.org_wide` / `.configure`) → each with a **resource scope** → the access **matrix** as a *generated projection* (capability × persona × scope) used as contract and test oracle.
+Reviewed by kestrel/relay/juniper (thread ff1b0b251322, 2026-07-26): three build-with-changes verdicts converging on one mechanism. Origin: Avi's sub-feature-levels requirement via caliper's exercise-1 addendum. What follows is the build contract.
 
-Platform-owner assessment:
+### The model
 
-**Already expressible today.** Capabilities are just feature keys — `notes.export.basic` and `notes.export.org_wide` are two manifest entries with different grants; multi-capability gating needs zero new machinery, only the naming convention. This *settles the juniper/relay key-segment tension in favor of multi-segment*: sub-segments name **verb modes**, which is exactly the legitimate use; the ban stays on object *instances*.
+- **Feature area** = product surface (notes.export). **Capability** = gateable mode within it (notes.export.basic / .full / .org_wide / .configure). Mechanically capabilities are manifest keys — zero new runtime machinery; the canonical wire format stays flat string keys.
+- **Each area declares its mode vocabulary** (juniper): `modes: [basic, full, org_wide, configure]` — a third key segment MUST come from the area's closed, reviewed mode set. This is the structural key lint: an object instance cannot appear as a segment because every legal segment was pre-declared. Secondary lint for consumers with registries: reject segments colliding with registered artifact slugs/ids. Blanket segment-count bans are rejected (relay): owned prefixes like opsroom.tables.smart_create are legitimate namespacing. **The key-segment tension from review #1 is hereby ratified-resolved by both its owners.**
+- **Scope is declared per (capability, resource_type)** — a SET of pairs, single-type as the common degenerate case (juniper; relay confirms OpsRoom's join-shaped verbs: smart-create touches tables+sources; formal deck export touches decks+materializations). Scalar scope would force fake capability splits or lying declarations.
 
-**The one genuinely new primitive: declared resource scopes.** Today a capability's scope (which objects the handler touches) lives silently in handler code — which is why `if admin: include_all_notes()` can make any matrix lie. The proposal makes it structural: a product registers **named scope resolvers** (`visible_notes`, `owned`, `team`, `org_wide`, `custom:<name>` — each a documented query pattern over the existing Authorizer/DB), the manifest declares `scope:` per capability, and handlers *consume the resolver* rather than open-coding the query. The hidden branch then can't hide: privileged widening = a second capability with a wider declared scope.
+### Scope resolvers — the honest enforcement story (kestrel's headline, verbatim intent)
 
-**Generated artifacts.** From manifest (+ scope declarations): (a) the Act-4 access matrix as a *generated, reviewable* projection — the design-time twin of kestrel's runtime point-in-time export; (b) per-matrix-row **test skeletons** (denied/allowed/scope assertions) that *fail until filled* — never auto-passing assertions, which would be theater. Registration prompting (area → capabilities → grants → scope → tests) folds into the `asunset feature new` scaffold from the DX list.
+The phrase "structurally impossible to hide" is retired. The truth has three layers, all stated:
 
-**Boundaries held (non-negotiable):**
-1. Scope resolvers are **named query patterns, not a second authorization system** — every decision still flows through the Authorizer port; a resolver that invents its own permission semantics is a bug, not an extension.
-2. **UI state stays out of the manifest** — it's a matrix *column* for design review, not manifest data; the manifest remains deployment authorization policy (relay's category ruling).
-3. The **hidden-branch assumption is stated as a prerequisite**: registration works when business logic exposes clean capability/scope boundaries; retrofitting a tangled codebase is refactoring work the tool can reveal (matrix vs reality) but not replace.
+1. **Resolver contract (enforceable, mandated): NARROW-ONLY.** A scope resolver may only FILTER resource sets the Authorizer already admits — never widen, never add. Worst case under a drifted handler: the caller sees everything the Authorizer already permits — never something illegal. This is the achievable structural floor (kestrel+juniper synthesis).
+2. **Preferred structural pattern (recommended, not mandated): resolver-as-sole-data-door** — the handler receives its object set only through the injected resolver. Under this DI discipline, declared-scope violations become impossible rather than visible. State the cost; let consumers adopt deliberately.
+3. **Residual gap ("did the handler actually call the resolver"): test-enforced,** via generated skeletons — and **never doctor-enforced: the platform cannot see consumer handler queries; no doctor check for scope drift exists or will** (kestrel, blunt-by-request).
 
-**Sequencing:** rides ON TOP of v1.1, not instead of it — runtime grants/freeze are prerequisites for capability-level scoping of real personas. Proposed order: v1.1 → scope-resolver primitive + matrix generation → registration scaffold. Needs the three-lens review (or Avi's direct ratification) before build.
+**The doctrine rule, verbatim (juniper): SCOPES ARE LIFECYCLE-BLIND; GATES ARE REACH-BLIND.** A resolver answers "how far does this principal's verb see"; the methodology gate answers "is this artifact/transition lawful." A resolver may never carry a lifecycle predicate — "formal export touches only APPROVED artifacts" is a correct requirement in the WRONG layer; it lives in the gate's fail-closed consumption list, never in a resolver named approved_only. Composition is always: scope (what you can see) ∧ gate (what is lawful). Features-gate-surfaces survives sharpened, not blurred.
+
+### Registration seam (kestrel's subtree-pull warning; relay's layout)
+
+- asunset owns: ScopeResolverRegistry, the resolver protocol, matrix generator, skeleton generator. **The resolver-registration API gets a contract-§5-class stability guarantee** — a subtree pull that shifts the registration contract silently unscopes consumer features; this seam is frozen like the identity seam.
+- Consumer owns: features.yaml + resolver code in a predictable location (authz/scopes.py-style, next to authorization code — never inside methodology project folders). Startup registers resolvers explicitly by stable name + resource_type.
+- Generated artifacts embed the **resolver fingerprint/version** — not as an authz decision, but so reviews and stale tests know which implementation they evidenced.
+
+### Manifest hard ceilings (relay — the non-DSL guarantee)
+
+`scope` is a REFERENCE to a registered resolver, never inline logic; custom:<name> must resolve to a registered name. Never in the manifest: user/team/project/artifact ids, inline SQL or filter expressions, lifecycle predicates, boolean/conditional logic, UI state. The matrix is a projection artifact, never a second source of truth. A resolver that would widen reach must instead be a distinct capability.
+
+### Generated artifacts
+
+- **The matrix**: generated projection (capability × persona × (resource_type, scope)) — design-time twin of the v1.1 runtime export. **Matrix-vs-runtime divergence is a REPORT, never a gate** (runtime grants legitimately exceed design defaults); the compliance artifact is the diff with the interesting rows explained: "granted beyond what design contemplated."
+- **Per-row test skeletons**: fail-until-filled, never auto-passing. **A filled skeleton embeds the declaration fingerprint it evidenced (capability key + scope hash)** — when the declaration changes, the skeleton regenerates stale-failing instead of passing against a dead claim (juniper; closes the test-side of the drift question).
+- **Codegen surface** (relay): canonical Feature enum / TS union stays flat; additionally generate FEATURE_AREAS and CAPABILITIES_BY_AREA groupings for docs/UI/admin ergonomics; any grouped aliases resolve to canonical keys.
+
+### Operations
+
+- **Freeze granularity**: the capability is the atomic unit; area-freeze is prefix sugar over its keys. **The freeze report states blast radius** ("froze 4 capabilities in area notes.export") — a freeze that doesn't tell you its scope is a second incident (kestrel).
+- **Migration: grandfather, never retrofit.** A flat key IS a degenerate single-capability area; audit.view and notes.export stay untouched with their grants intact. An area grows a second capability additively when a real second mode appears.
+
+### Adoption path + sequencing (unanimous, reaffirmed)
+
+OpsRoom's first features ship as FLAT KEYS now (opsroom.tables.smart_create-class) — §11 machinery is not required for them. Adopt capabilities when a feature genuinely has modes/reach tiers. Build order: **v1.1 (with the dry_run doctor-identity design INSIDE it — it gates every future doctor story) → scope-resolver primitive + matrix + skeleton generation → registration scaffold.** Nothing here reorders v1.1.
