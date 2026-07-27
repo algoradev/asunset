@@ -5,6 +5,10 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
+      "@asunset/web-sdk/hooks": new URL(
+        "../../packages/web-sdk/src/hooks.ts",
+        import.meta.url,
+      ).pathname,
       "@asunset/web-sdk": new URL(
         "../../packages/web-sdk/src/index.ts",
         import.meta.url,
@@ -17,6 +21,9 @@ export default defineConfig({
     proxy: {
       "/platform": "http://localhost:8000",
       "/orgs": "http://localhost:8000",
+      "/teams": "http://localhost:8000",
+      "/users": "http://localhost:8000",
+      "/audit": "http://localhost:8000",
     },
   },
   build: {
