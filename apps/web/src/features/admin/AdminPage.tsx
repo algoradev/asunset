@@ -1,4 +1,4 @@
-import { useAuth } from "react-oidc-context";
+import { useFetcher } from "@asunset/web-sdk";
 import { useMutation } from "@tanstack/react-query";
 import { Trans } from "react-i18next";
 import { ChevronRight, Play, Shield } from "lucide-react";
@@ -13,9 +13,8 @@ import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 
 export function AdminPage() {
-  const auth = useAuth();
   const { t } = useT();
-  const f = { accessToken: auth.user?.access_token };
+  const f = useFetcher();
 
   const reconcileM = useMutation({
     mutationFn: () => api.reconcileFga(f),

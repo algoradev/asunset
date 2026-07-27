@@ -8,19 +8,38 @@ import (
 // A7 token-storage hardening (kestrel's ruling under Avi's delegation):
 // access token in memory only, refresh token never in browser storage,
 // silent renew rides Keycloak's httpOnly SSO cookie, refresh-token
-// rotation server-side, baseline CSP on the web tier. These tests pin
-// the wiring so a refactor can't silently regress any leg of it.
+// rotation server-side, baseline CSP on the web tier. These guards
+// MOVED WITH THE CODE when the kernel was extracted to
+// packages/web-sdk (frontend-sdk-decision.md): the posture now lives in
+// the SDK (where vitest additionally tests behavior, not just strings),
+// and the reference app is pinned to CONSUME it rather than restate it.
 
-func TestWebAuthUsesInMemoryTokenStore(t *testing.T) {
+func TestSDKAuthUsesInMemoryTokenStore(t *testing.T) {
+	cfg := readRepoFile(t, "packages/web-sdk/src/config.ts")
+	if !strings.Contains(cfg, "InMemoryWebStorage") {
+		t.Error("web-sdk config must keep tokens in InMemoryWebStorage — never localStorage/sessionStorage")
+	}
+	if strings.Contains(cfg, "window.localStorage") {
+		t.Error("web-sdk config must not reference window.localStorage for the user store")
+	}
+	if !strings.Contains(cfg, "silent_redirect_uri") {
+		t.Error("web-sdk config must set silent_redirect_uri (SSO-cookie silent renew)")
+	}
+}
+
+func TestReferenceAppConsumesTheKernel(t *testing.T) {
+	// Dogfood pin: the reference app must not re-grow a local auth
+	// implementation next to the SDK (the one-implementation rule).
 	auth := readRepoFile(t, "apps/web/src/auth.ts")
-	if !strings.Contains(auth, "InMemoryWebStorage") {
-		t.Error("auth.ts must keep tokens in InMemoryWebStorage — never localStorage/sessionStorage")
+	if !strings.Contains(auth, `createOidcConfig`) ||
+		!strings.Contains(auth, `"@asunset/web-sdk"`) {
+		t.Error("apps/web auth.ts must build its config via @asunset/web-sdk createOidcConfig")
 	}
-	if strings.Contains(auth, "window.localStorage") {
-		t.Error("auth.ts must not reference window.localStorage for the user store")
+	if strings.Contains(auth, "userStore:") || strings.Contains(auth, "WebStorageStateStore") {
+		t.Error("apps/web auth.ts must not carry its own token-store wiring — that's the SDK's")
 	}
-	if !strings.Contains(auth, "silent_redirect_uri") {
-		t.Error("auth.ts must configure silent_redirect_uri (SSO-cookie silent renew)")
+	if !strings.Contains(readRepoFile(t, "apps/web/vite.config.ts"), "@asunset/web-sdk") {
+		t.Error("apps/web must alias @asunset/web-sdk (Option S source distribution)")
 	}
 }
 
@@ -28,8 +47,11 @@ func TestSilentRenewPageIsWired(t *testing.T) {
 	if !strings.Contains(readRepoFile(t, "apps/web/silent-renew.html"), "silent-renew.ts") {
 		t.Error("silent-renew.html must load the silent-renew callback module")
 	}
-	if !strings.Contains(readRepoFile(t, "apps/web/src/silent-renew.ts"), "signinSilentCallback") {
-		t.Error("silent-renew.ts must call signinSilentCallback")
+	if !strings.Contains(readRepoFile(t, "apps/web/src/silent-renew.ts"), "runSilentRenewCallback") {
+		t.Error("apps/web silent-renew.ts must delegate to the SDK's runSilentRenewCallback")
+	}
+	if !strings.Contains(readRepoFile(t, "packages/web-sdk/src/silent-renew.ts"), "signinSilentCallback") {
+		t.Error("web-sdk silent-renew must call signinSilentCallback")
 	}
 	if !strings.Contains(readRepoFile(t, "apps/web/vite.config.ts"), "silent-renew.html") {
 		t.Error("vite.config.ts must build silent-renew.html as an entry point")

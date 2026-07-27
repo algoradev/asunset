@@ -139,10 +139,13 @@ Your API mounts the platform and adds itself (template's
 
 Fork `apps/web/` **additively**: new files under `features/<yours>/`,
 one edit to `src/config/routes.ts` (`defineConsumerRoutes([...])` wires
-routes into sidebar/palette/breadcrumbs/types), i18n strings. Keep
-`auth.ts` / `api.ts` / `App.tsx` byte-identical — asunset owns all auth
-chrome and the token lifecycle (in-memory tokens, silent renew via the
-SSO cookie, idle logout). Brand/resource strings ride `.env`, not code.
+routes into sidebar/palette/breadcrumbs/types), i18n strings. The auth
+kernel (in-memory tokens, silent renew via the SSO cookie, idle logout,
+correlation+bearer fetch) is **imported from `@asunset/web-sdk`** —
+`auth.ts` / `api.ts` are thin consumers of it, and your fork keeps them
+that way (the old "byte-identical" convention upgraded to structure:
+divergence is now inexpressible, not merely forbidden).
+Brand/resource strings ride `.env`, not code.
 The additive-only rule is what makes upstream pulls and any future
 shared-package migration cheap.
 
@@ -158,9 +161,13 @@ obligations come with the freedom:
    fetch). Hand-rolled browser OIDC/token handling is a
    **review-blocker** — same class as hand-rolled FGA clients. An
    unauthenticated surface (pre-adoption dev) is compliant; partial or
-   parallel auth implementations are not. Your SPA's serving layer also
-   owns the CSP/security-header posture the in-memory design requires —
-   the header set ships with the SDK slice and is doctor-checkable.
+   parallel auth implementations are not. Wiring guide:
+   [`packages/web-sdk/README.md`](../packages/web-sdk/README.md) —
+   source-alias install, five wiring steps, the silent-renew page.
+   Your SPA's serving layer also owns the CSP/security-header posture
+   the in-memory design requires: FastAPI-served SPAs add
+   `asunset_core.middleware.SecurityHeadersMiddleware` in the same
+   slice (opt-out only with `disabled_reason=`, logged loudly).
 2. **The ingress swap uses the sanctioned seam below** — never an edit
    to vendored files.
 

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useAuth } from "react-oidc-context";
+import { useFetcher } from "@asunset/web-sdk";
 
 import { api } from "@/api";
 import { BRAND } from "@/config/brand";
@@ -7,9 +7,8 @@ import { useT } from "@/lib/useT";
 import { SettingRow, SettingRowGroup } from "../SettingRow";
 
 export function AboutSection() {
-  const auth = useAuth();
   const { t } = useT();
-  const f = { accessToken: auth.user?.access_token };
+  const f = useFetcher();
 
   const orgQ = useQuery({
     queryKey: ["org"],

@@ -1,4 +1,4 @@
-import { useAuth } from "react-oidc-context";
+import { useAuth } from "@asunset/web-sdk";
 import { LogOut, ShieldCheck, ShieldOff } from "lucide-react";
 
 import { useT } from "@/lib/useT";

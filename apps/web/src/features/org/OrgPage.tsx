@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAuth } from "react-oidc-context";
+import { useAuth, useFetcher } from "@asunset/web-sdk";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Building2, MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
@@ -43,7 +43,7 @@ import { TempPasswordCallout } from "./TempPasswordCallout";
 export function OrgPage({ orgRole }: { orgRole: Role }) {
   const auth = useAuth();
   const { t } = useT();
-  const f = { accessToken: auth.user?.access_token };
+  const f = useFetcher();
   const qc = useQueryClient();
 
   const isAdmin = orgRole === "admin";

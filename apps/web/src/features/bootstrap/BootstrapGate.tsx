@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAuth } from "react-oidc-context";
+import { useFetcher } from "@asunset/web-sdk";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Building2, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
@@ -19,7 +19,7 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 
 export function BootstrapGate({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
-  const auth = useAuth();
+  const f = useFetcher();
   const qc = useQueryClient();
   const { t } = useT();
   const [orgName, setOrgName] = useState("");
@@ -27,7 +27,7 @@ export function BootstrapGate({ isPlatformAdmin }: { isPlatformAdmin: boolean })
   const mutation = useMutation({
     mutationFn: () =>
       api.bootstrap(
-        { accessToken: auth.user?.access_token },
+        f,
         { org_name: orgName.trim() },
       ),
     onSuccess: () => {

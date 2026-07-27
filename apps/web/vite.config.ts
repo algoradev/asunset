@@ -16,6 +16,12 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // Option S source-alias (docs/frontend-sdk-decision.md): the SDK
+      // ships as TypeScript source; this path is a contract surface.
+      "@asunset/web-sdk": path.resolve(
+        __dirname,
+        "../../packages/web-sdk/src/index.ts",
+      ),
     },
   },
   server: {

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAuth } from "react-oidc-context";
+import { useFetcher } from "@asunset/web-sdk";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Building2, Share2, User2, Users2 } from "lucide-react";
 import { toast } from "sonner";
@@ -46,10 +46,9 @@ export function ShareDialog({
   teams: Team[];
   onClose: () => void;
 }) {
-  const auth = useAuth();
   const qc = useQueryClient();
   const { t } = useT();
-  const f = { accessToken: auth.user?.access_token };
+  const f = useFetcher();
 
   const [target, setTarget] = useState<Target>("user");
   const [relation, setRelation] = useState<Relation>("viewer");

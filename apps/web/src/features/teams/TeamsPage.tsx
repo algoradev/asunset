@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAuth } from "react-oidc-context";
+import { useFetcher } from "@asunset/web-sdk";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Plus, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
@@ -54,9 +54,8 @@ import { ErrorState } from "@/components/States";
 import { Spinner } from "@/components/ui/spinner";
 
 export function TeamsPage({ orgRole }: { orgRole: Role }) {
-  const auth = useAuth();
   const { t } = useT();
-  const f = { accessToken: auth.user?.access_token };
+  const f = useFetcher();
   const qc = useQueryClient();
 
   const isOrgAdmin = orgRole === "admin";
@@ -139,15 +138,15 @@ function CreateTeamDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const auth = useAuth();
   const qc = useQueryClient();
   const { t } = useT();
+  const f = useFetcher();
   const [name, setName] = useState("");
 
   const createM = useMutation({
     mutationFn: () =>
       api.createTeam(
-        { accessToken: auth.user?.access_token },
+        f,
         { name: name.trim() },
       ),
     onSuccess: () => {
@@ -285,9 +284,8 @@ function TeamMembersPanel({
   team: Team;
   canManage: boolean;
 }) {
-  const auth = useAuth();
   const { t } = useT();
-  const f = { accessToken: auth.user?.access_token };
+  const f = useFetcher();
   const qc = useQueryClient();
 
   const [email, setEmail] = useState("");

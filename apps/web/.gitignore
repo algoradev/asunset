@@ -2,3 +2,7 @@ node_modules
 dist
 .vite
 *.log
+
+# tsc -b emits this from tsconfig.node.json (composite); vite would
+# prefer the stale .js over vite.config.ts — never commit it.
+vite.config.js

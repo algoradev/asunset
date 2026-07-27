@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAuth } from "react-oidc-context";
+import { useAuth, useFetcher } from "@asunset/web-sdk";
 import { useQuery } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, Mail } from "lucide-react";
 
@@ -38,9 +38,10 @@ export function UserCombobox({
   const [query, setQuery] = useState("");
 
   const auth = useAuth();
+  const f = useFetcher();
   const membersQ = useQuery({
     queryKey: ["org-members"],
-    queryFn: () => api.listOrgMembers({ accessToken: auth.user?.access_token }),
+    queryFn: () => api.listOrgMembers(f),
     enabled: open && !!auth.user,
     staleTime: 60_000,
   });

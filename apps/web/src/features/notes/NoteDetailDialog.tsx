@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAuth } from "react-oidc-context";
+import { useFetcher } from "@asunset/web-sdk";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Building2, Share2, Trash2, User2, Users2, X } from "lucide-react";
@@ -56,8 +56,7 @@ export function NoteDetailDialog({
   onClose: () => void;
   teams: Team[];
 }) {
-  const auth = useAuth();
-  const f = { accessToken: auth.user?.access_token };
+  const f = useFetcher();
 
   const noteQ = useQuery({
     queryKey: ["note", noteId],
@@ -99,10 +98,9 @@ function NoteEditor({
   teams: Team[];
   onClose: () => void;
 }) {
-  const auth = useAuth();
   const qc = useQueryClient();
   const { t } = useT();
-  const f = { accessToken: auth.user?.access_token };
+  const f = useFetcher();
 
   const [title, setTitle] = useState(note.title);
   const [body, setBody] = useState(note.body);

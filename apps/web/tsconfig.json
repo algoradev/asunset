@@ -17,9 +17,10 @@
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@asunset/web-sdk": ["../../packages/web-sdk/src/index.ts"]
     }
   },
-  "include": ["src"],
+  "include": ["src", "../../packages/web-sdk/src"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

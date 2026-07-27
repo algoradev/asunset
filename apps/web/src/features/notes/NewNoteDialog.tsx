@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAuth } from "react-oidc-context";
+import { useFetcher } from "@asunset/web-sdk";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Plus } from "lucide-react";
 import { toast } from "sonner";
@@ -36,7 +36,7 @@ import { Textarea } from "@/components/ui/textarea";
 const PERSONAL = "__personal__";
 
 export function NewNoteDialog({ teams }: { teams: Team[] }) {
-  const auth = useAuth();
+  const f = useFetcher();
   const qc = useQueryClient();
   const { t } = useT();
   const [open, setOpen] = useState(false);
@@ -47,7 +47,7 @@ export function NewNoteDialog({ teams }: { teams: Team[] }) {
   const mutation = useMutation({
     mutationFn: () =>
       api.createNote(
-        { accessToken: auth.user?.access_token },
+        f,
         {
           title: title.trim(),
           body,

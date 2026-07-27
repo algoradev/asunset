@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useAuth } from "react-oidc-context";
+import { useFetcher } from "@asunset/web-sdk";
 import { toast } from "sonner";
 import { UserPlus } from "lucide-react";
 
@@ -30,9 +30,8 @@ import {
 import { TempPasswordCallout } from "./TempPasswordCallout";
 
 export function InviteMemberDialog() {
-  const auth = useAuth();
   const { t } = useT();
-  const f = { accessToken: auth.user?.access_token };
+  const f = useFetcher();
   const qc = useQueryClient();
 
   const [open, setOpen] = useState(false);

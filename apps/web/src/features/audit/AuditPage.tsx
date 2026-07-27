@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
-import { useAuth } from "react-oidc-context";
+import { useFetcher } from "@asunset/web-sdk";
 import { useQuery } from "@tanstack/react-query";
 import {
   type ColumnDef,
@@ -58,9 +58,8 @@ import {
 import { ErrorState } from "@/components/States";
 
 export function AuditPage({ orgRole }: { orgRole: Role }) {
-  const auth = useAuth();
   const { t } = useT();
-  const f = { accessToken: auth.user?.access_token };
+  const f = useFetcher();
 
   const [eventType, setEventType] = useState("");
   const [traceId, setTraceId] = useState("");

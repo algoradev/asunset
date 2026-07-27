@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAuth } from "react-oidc-context";
+import { useFetcher } from "@asunset/web-sdk";
 import { useQuery } from "@tanstack/react-query";
 import { Trans } from "react-i18next";
 import { Download, LayoutGrid, Rows3 } from "lucide-react";
@@ -46,10 +46,9 @@ type View = "table" | "grid";
 type TFn = ReturnType<typeof useT>["t"];
 
 export function NotesPage() {
-  const auth = useAuth();
   const { t } = useT();
-  const token = auth.user?.access_token;
-  const f = { accessToken: token };
+  const f = useFetcher();
+  const token = f.accessToken;
   const features = useFeatures();
 
   const [scope, setScope] = useState<NoteScope>("mine");

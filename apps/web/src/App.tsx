@@ -1,5 +1,10 @@
-import { Fragment, useCallback, useEffect, useState } from "react";
-import { useAuth } from "react-oidc-context";
+import { Fragment, useCallback, useState } from "react";
+import {
+  useAuth,
+  useFetcher,
+  useIdleLogout,
+  useSilentBootstrap,
+} from "@asunset/web-sdk";
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "./api";
@@ -41,32 +46,15 @@ import {
 } from "./components/settings/SettingsContext";
 import type { Route } from "./lib/route";
 import { useRoute } from "./lib/route";
-import { useIdleLogout } from "./lib/useIdleLogout";
 
 export default function App() {
   const auth = useAuth();
   const { t } = useT();
   // Tokens live in memory only (A7), so a reload starts token-less even
-  // when Keycloak's httpOnly SSO cookie still holds a live session. Try
-  // ONE silent signin (prompt=none iframe rides that cookie) before
-  // showing the login form — this is what makes reload/multi-tab UX
-  // survive the in-memory posture. "failed" → genuinely logged out.
-  const [silent, setSilent] = useState<"pending" | "trying" | "failed">(
-    "pending",
-  );
-
-  useEffect(() => {
-    if (auth.isLoading || auth.isAuthenticated || auth.activeNavigator) return;
-    if (silent !== "pending") return;
-    // A redirect callback in flight (?code=...) is handled by the
-    // provider — don't race it with an iframe attempt.
-    if (new URLSearchParams(window.location.search).has("code")) return;
-    setSilent("trying");
-    auth
-      .signinSilent()
-      .then((user) => setSilent(user ? "pending" : "failed"))
-      .catch(() => setSilent("failed"));
-  }, [auth, silent]);
+  // when Keycloak's httpOnly SSO cookie still holds a live session. The
+  // SDK tries ONE silent signin (prompt=none iframe rides that cookie)
+  // before we show the login form. "failed" → genuinely logged out.
+  const silent = useSilentBootstrap();
 
   if (auth.isLoading || silent === "trying") {
     return <CenteredSpinner label={t("common.loading")} />;
@@ -99,8 +87,8 @@ function LoginShell({ children }: { children: React.ReactNode }) {
 function AuthedShell() {
   const auth = useAuth();
   const { t } = useT();
-  const token = auth.user?.access_token;
-  const f = { accessToken: token };
+  const f = useFetcher();
+  const token = f.accessToken;
   const [route, navigate] = useRoute();
 
   // HIPAA §164.312(a)(2)(iii): terminate inactive sessions. 15min idle +

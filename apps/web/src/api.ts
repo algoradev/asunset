@@ -1,85 +1,19 @@
 /**
- * Typed API client.
- *
- * Injects the Keycloak access token as Bearer on every request, plus a
- * freshly-minted X-Correlation-Id so the FastAPI correlation middleware
- * (and every downstream log line) can tie this browser action to the
- * same trace_id the SIEM sees.
+ * Typed API client. Transport comes from the SDK fetch core (bearer +
+ * X-Correlation-Id on every request, ApiError with the server-echoed
+ * correlation id); this file owns only the endpoint surface and types.
  */
 
-const API_URL = import.meta.env.VITE_API_URL;
+import { createApiCore } from "@asunset/web-sdk";
+import type { Fetcher } from "@asunset/web-sdk";
 
-function newCorrelationId(): string {
-  return Array.from(crypto.getRandomValues(new Uint8Array(12)))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
+// Re-exported so feature code keeps one import site for API concerns.
+export { ApiError } from "@asunset/web-sdk";
+export type { Fetcher };
 
-export class ApiError extends Error {
-  constructor(
-    public readonly status: number,
-    message: string,
-    public readonly correlationId: string,
-  ) {
-    super(message);
-  }
-}
-
-export type Fetcher = {
-  accessToken: string | undefined;
-};
-
-async function request<T>(
-  path: string,
-  init: RequestInit,
-  { accessToken }: Fetcher,
-): Promise<T> {
-  const correlationId = newCorrelationId();
-  const headers = new Headers(init.headers);
-  headers.set("X-Correlation-Id", correlationId);
-  if (init.body && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
-  if (accessToken) {
-    headers.set("Authorization", `Bearer ${accessToken}`);
-  }
-
-  const resp = await fetch(`${API_URL}${path}`, { ...init, headers });
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => "");
-    throw new ApiError(
-      resp.status,
-      text || resp.statusText,
-      resp.headers.get("X-Correlation-Id") ?? correlationId,
-    );
-  }
-  if (resp.status === 204) return undefined as T;
-  return (await resp.json()) as T;
-}
-
-async function requestText(
-  path: string,
-  init: RequestInit,
-  { accessToken }: Fetcher,
-): Promise<string> {
-  const correlationId = newCorrelationId();
-  const headers = new Headers(init.headers);
-  headers.set("X-Correlation-Id", correlationId);
-  if (accessToken) {
-    headers.set("Authorization", `Bearer ${accessToken}`);
-  }
-
-  const resp = await fetch(`${API_URL}${path}`, { ...init, headers });
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => "");
-    throw new ApiError(
-      resp.status,
-      text || resp.statusText,
-      resp.headers.get("X-Correlation-Id") ?? correlationId,
-    );
-  }
-  return await resp.text();
-}
+const core = createApiCore(import.meta.env.VITE_API_URL);
+const request = core.request;
+const requestText = core.requestText;
 
 // --- Types (mirror the Pydantic schemas) ---
 
