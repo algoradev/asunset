@@ -18,6 +18,7 @@
     "types": ["vite/client", "node"],
     "baseUrl": ".",
     "paths": {
+      "@asunset/web-sdk/hooks": ["../../packages/web-sdk/src/hooks.ts"],
       "@asunset/web-sdk": ["../../packages/web-sdk/src/index.ts"]
     }
   },
