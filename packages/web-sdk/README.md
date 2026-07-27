@@ -171,6 +171,29 @@ custom cache entries through `platformKeys`, never hand-typed strings.
 over your generated key union. The reference app's org/teams/audit
 pages consume exactly these hooks — read them as the worked example.
 
+### Hooks reference — mutation variables and built-in invalidations
+
+Queries take no variables except where shown; every mutation's `mutate()`
+takes the vars listed, and the invalidation happens inside the hook:
+
+| Hook | `mutate()` vars | Invalidates |
+| --- | --- | --- |
+| `useMe` / `useOrg` / `useOrgMembers` / `useTeams` | — (query) | — |
+| `useTeamMembers(teamId)` / `useAudit(filters)` | — (query) | — |
+| `useFeatureSet<K>()` | — (query) | — |
+| `useBootstrap` | `{ org_name }` | `me` |
+| `useReconcileFga` | `void` | — |
+| `useInviteMember` | `{ email, role }` | `orgMembers` |
+| `useResendInvite` | `{ userId, email }` (email flows to `onSuccess`) | — |
+| `useRevokeInvite` | `{ userId }` | `orgMembers` |
+| `useUpdateOrgMemberRole` | `{ userId, newRole }` | `orgMembers` |
+| `useRemoveOrgMember` | `{ userId }` | `orgMembers` |
+| `useCreateTeam` | `{ name }` | `teams` |
+| `useDeleteTeam` | `{ teamId }` | `teams` |
+| `useAddTeamMember` | `{ teamId, email, role }` (lookup→add composite) | `teamMembers(teamId)` |
+| `useUpdateTeamMemberRole` | `{ teamId, userId, newRole }` | `teamMembers(teamId)` |
+| `useRemoveTeamMember` | `{ teamId, userId }` | `teamMembers(teamId)` |
+
 ## Local dev against the smoke stack (copy-paste)
 
 A foreign Vite app on `localhost:5173` talking to a local asunset stack
@@ -206,7 +229,13 @@ build: {
 Dev-realm caveat: seeded users can carry `requiredActions` (e.g.
 `CONFIGURE_TOTP`) that block sign-in with "Account is not fully set up"
 — the recovery dance is documented in
-[`docs/runbooks/operator-token.md`](../../docs/runbooks/operator-token.md).
+[`docs/runbooks/operator-token.md`](../../docs/runbooks/operator-token.md),
+and it RECURS every time `keycloak-init` reruns (any init/env change).
+
+Stale-container caveat: the running smoke API is a built image — after
+pulling a main that changes API behavior (e.g. error shapes), rebuild it
+(`asunset build api` / `docker compose build api`) or the live stack
+will contradict the docs.
 
 A complete working fixture lives at
 [`examples/foreign-ui-min/`](../../examples/foreign-ui-min/) — the
@@ -228,9 +257,8 @@ logged loudly. (nginx-served SPAs: mirror
   secured by the browser sending them. "SDK wired" and "enforcement
   wired" are separate acceptance states — never report the first as the
   second.
-- Not a hooks layer (yet): the headless TanStack hooks are Tier 2b,
-  separate and opt-in — the 2a client above never imports a state
-  library.
+- Not a TanStack dependency: the kernel and the 2a client never import
+  a state library — only the opt-in `/hooks` entry does.
 - Not a component library: `@asunset/react` remains a reserved name
   with its own trigger.
 
