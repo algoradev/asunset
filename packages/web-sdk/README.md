@@ -105,6 +105,30 @@ runSilentRenewCallback();
 
 Vite: add the html as a second rollup input so it lands in `dist/`.
 
+## Tier 2a — the typed platform client
+
+Framework-free platform data access over the same core — orgs, members,
+invites (including the exactly-once `temporary_password` contract),
+teams, audit, `me`/`meFeatures`, bootstrap, reconcile. Safe from any
+state layer: raw `useState`/`useEffect`, TanStack, anything.
+
+```ts
+import { createApiCore, createPlatformClient, useFetcher } from "@asunset/web-sdk";
+
+const core = createApiCore("");                 // "" = same-origin
+const platform = createPlatformClient(core);
+
+const f = useFetcher();
+const me = await platform.me(f);                // Me
+const members = await platform.listOrgMembers(f); // OrgMember[]
+const events = await platform.listAuditEvents(f, { event_type: "note.created" });
+```
+
+All platform types (`Me`, `OrgMember`, `InviteResult`, `AuditEvent`, …)
+are exported. Your product's own resources stay in your own client —
+this surface is platform-only, and it grows via subtree pull, not via
+your fork.
+
 ## The CSP corollary (not optional)
 
 In-memory tokens are only as strong as the XSS posture around them. If
@@ -120,8 +144,9 @@ logged loudly. (nginx-served SPAs: mirror
   secured by the browser sending them. "SDK wired" and "enforcement
   wired" are separate acceptance states — never report the first as the
   second.
-- Not a data layer: typed platform client + hooks are Tier 2 (separate,
-  à la carte).
+- Not a hooks layer (yet): the headless TanStack hooks are Tier 2b,
+  separate and opt-in — the 2a client above never imports a state
+  library.
 - Not a component library: `@asunset/react` remains a reserved name
   with its own trigger.
 

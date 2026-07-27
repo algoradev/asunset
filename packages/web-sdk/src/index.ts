@@ -23,6 +23,25 @@ export type { ApiCore, Fetcher } from "./fetch";
 
 export { runSilentRenewCallback } from "./silent-renew";
 
+// Tier 2a — typed platform client (framework-free).
+export { createPlatformClient } from "./platform";
+export type {
+  AuditEvent,
+  AuditFilters,
+  InviteDelivery,
+  InviteResendResult,
+  InviteResult,
+  Me,
+  Org,
+  OrgMember,
+  PlatformClient,
+  ReconcileReport,
+  Role,
+  Team,
+  TeamMember,
+  User,
+} from "./platform";
+
 // Re-exported so consumers don't import react-oidc-context directly for
 // the everyday hook (one named seam; the peer dep stays theirs to declare).
 export { useAuth } from "react-oidc-context";
