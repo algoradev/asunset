@@ -16,6 +16,7 @@ package main
 // drift fixes go through the audited endpoints.
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -140,6 +141,81 @@ func doctorStaticChecks(vars map[string]string) []checkResult {
 
 // --- live checks (best-effort HTTP against the running stack) -------------
 
+// edgeAuthRouteCheck probes /auth through the caddy front door — the
+// route every browser login depends on. Skips cleanly in plain mode
+// (no caddy) and when the edge itself is down; fails loudly when the
+// edge answers but /auth doesn't reach Keycloak (the foreign-UI
+// Caddyfile-swap mistake, or a broken generated file).
+func edgeAuthRouteCheck(vars map[string]string, realm string) checkResult {
+	const name = "edge-auth-route"
+	mode := vars["ASUNSET_MODE"]
+	discoveryPath := "/auth/realms/" + realm + "/.well-known/openid-configuration"
+
+	var edgeURL string
+	client := &http.Client{Timeout: 5 * time.Second}
+	switch {
+	case mode == "tailscale":
+		edgeURL = "http://127.0.0.1:5173" + discoveryPath
+	case strings.HasPrefix(mode, "tls-"):
+		authHost := strings.TrimSpace(vars["TLS_AUTH_HOST"])
+		if authHost == "" {
+			return check(name, statusSkip, "TLS mode but TLS_AUTH_HOST unset")
+		}
+		// Probe caddy on loopback with SNI/Host for the auth vhost;
+		// the internal-CA / operator cert won't chain from the host
+		// trust store, and that's fine — this checks ROUTING.
+		client.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{
+				ServerName:         authHost,
+				InsecureSkipVerify: true,
+			},
+		}
+		req, _ := http.NewRequest("GET", "https://127.0.0.1:443"+discoveryPath, nil)
+		req.Host = authHost
+		resp, err := client.Do(req)
+		if err != nil {
+			return check(name, statusSkip,
+				"caddy edge not reachable on :443 — stack down or ingress external? ("+err.Error()+")")
+		}
+		return edgeAuthRouteVerdict(name, resp, vars, realm)
+	default:
+		if mode == "" {
+			mode = "unset"
+		}
+		return check(name, statusSkip, "no caddy edge in mode "+mode)
+	}
+
+	resp, err := client.Get(edgeURL)
+	if err != nil {
+		return check(name, statusSkip,
+			"caddy edge not reachable at "+edgeURL+" — stack down? ("+err.Error()+")")
+	}
+	return edgeAuthRouteVerdict(name, resp, vars, realm)
+}
+
+func edgeAuthRouteVerdict(name string, resp *http.Response, vars map[string]string, realm string) checkResult {
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return check(name, statusFail, fmt.Sprintf(
+			"HTTP %d for /auth discovery through the front door — if you replaced the "+
+				"Caddyfile (foreign-UI recipe), the verbatim /auth block is the non-negotiable; "+
+				"see consuming-asunset.md §5b", resp.StatusCode))
+	}
+	var disc struct {
+		Issuer string `json:"issuer"`
+	}
+	expected := strings.TrimSuffix(vars["KEYCLOAK_PUBLIC_URL"], "/") + "/realms/" + realm
+	if json.Unmarshal(body, &disc) != nil || disc.Issuer == "" {
+		return check(name, statusFail, "front door answered /auth but no issuer in discovery doc")
+	}
+	if disc.Issuer != expected {
+		return check(name, statusWarn, fmt.Sprintf(
+			"front-door issuer %s != expected %s", disc.Issuer, expected))
+	}
+	return check(name, statusOK, "front door routes /auth → "+disc.Issuer)
+}
+
 func localKCBase(vars map[string]string) string {
 	internal := vars["KEYCLOAK_INTERNAL_URL"]
 	// in-network DNS isn't resolvable from the host
@@ -216,6 +292,13 @@ func doctorLiveChecks(vars map[string]string) []checkResult {
 			out = append(out, check("keycloak-discovery", statusOK, disc.Issuer))
 		}
 	}
+
+	// Front-door /auth route through the caddy edge. The generated
+	// Caddyfile always carries it; a foreign-UI consumer owns their
+	// Caddyfile (consuming-asunset.md §5b) and the /auth block is the
+	// recipe's non-negotiable — this is where forgetting it surfaces
+	// before a browser does.
+	out = append(out, edgeAuthRouteCheck(vars, realm))
 
 	// Session-token JWKS (second issuer of contract §5.1a).
 	if resp, err = client.Get(apiBase + "/platform/sessions/jwks"); err == nil {

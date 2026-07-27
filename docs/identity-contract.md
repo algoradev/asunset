@@ -217,13 +217,15 @@ The surface asunset owns and every product UI rides. Two layers: what Keycloak e
 | `response_type` | `code` (authorization code; PKCE S256 enforced by the client config, §2.1) |
 | `scope` | `openid profile email` |
 | `redirect_uri` / `post_logout_redirect_uri` | `window.location.origin` |
-| token storage | **`localStorage`** |
-| `automaticSilentRenew` | **true** |
+| token storage | **in-memory** (`InMemoryWebStorage` via `WebStorageStateStore`) |
+| `automaticSilentRenew` | **true** (via SSO-cookie silent renew, `silent-renew.html`) |
 | `onSigninCallback` | strips `?code=…&state=…` from the URL after callback |
 
 Redirect URIs, web origins, and post-logout URIs are **derived from the deployment hostname** by `init.sh`, not hand-set per environment. On a tailnet deployment the script fails loud rather than leaving localhost URIs in place.
 
-**Storage caveat, stated in the source:** `localStorage` is a deliberate template trade-off ("acceptable for a solo-operator dev template; tighten to `sessionStorage` or memory in deployments where XSS is a concern"). Refresh tokens live there too. **Any product handling regulated data should revisit this** — it is a template default, not a HIPAA-considered ruling.
+**Storage posture:** tokens (access and refresh) are held **in memory only** — nothing auth-bearing touches `localStorage` or `sessionStorage`. Session continuity across reloads comes from Keycloak's SSO cookie via silent renew, not from persisted tokens. Corollary: this posture is only as strong as the XSS controls around it — the CSP shipped with the SPA is part of the security boundary, not an optional hardening (see the A7 guards in `tools/deploy/a7_hardening_test.go`).
+
+> **Amended 2026-07-27:** in-memory token storage (`InMemoryWebStorage`) has been the shipped behavior since the A7 hardening (`d556f3a`); this section previously stated `localStorage` with a template-trade-off caveat — the code has been ahead of this document since A7. Recorded as a dated amendment rather than a silent fix because token-storage is a contract property consumers may design against (reload/tab persistence expectations changed at A7).
 
 ### 6.2 Idle logoff
 

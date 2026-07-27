@@ -146,6 +146,111 @@ SSO cookie, idle logout). Brand/resource strings ride `.env`, not code.
 The additive-only rule is what makes upstream pulls and any future
 shared-package migration cheap.
 
+### 5b. Ship your own UI — the foreign-UI path
+
+Ruled 2026-07-27 ([`frontend-sdk-decision.md`](frontend-sdk-decision.md)):
+you may replace asunset's `web` with a fully independent frontend. Two
+obligations come with the freedom:
+
+1. **The auth kernel is not yours to write.** The moment your UI does
+   auth against asunset identity, it consumes `@asunset/web-sdk`
+   (in-memory tokens, silent renew, idle logout, correlation+bearer
+   fetch). Hand-rolled browser OIDC/token handling is a
+   **review-blocker** — same class as hand-rolled FGA clients. An
+   unauthenticated surface (pre-adoption dev) is compliant; partial or
+   parallel auth implementations are not. Your SPA's serving layer also
+   owns the CSP/security-header posture the in-memory design requires —
+   the header set ships with the SDK slice and is doctor-checkable.
+2. **The ingress swap uses the sanctioned seam below** — never an edit
+   to vendored files.
+
+**The override-mount seam** (supported contract surface). Compose merges
+volume mounts by container path — last file wins — so your product
+overlay replaces the generated Caddyfile without touching
+`vendor/asunset/`. In `compose.product.yml`:
+
+```yaml
+services:
+  web:
+    profiles: ["donotstart"]      # asunset demo UI off
+
+  your-api:                        # serves your SPA same-origin, or a
+    build: ...                     # separate SPA service — your shape
+
+  caddy:
+    volumes:
+      # Relative paths resolve against the PROJECT dir (vendor/asunset/),
+      # so climb out — this is your file, at your repo root:
+      - ../../deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on: !override          # REQUIRED — see below
+      - keycloak
+      - your-api
+```
+
+The `depends_on: !override` is not optional: the mode overlays declare
+`depends_on: [web, keycloak, api]`, and with `web`/`api` profiled out
+compose refuses the project with
+`service "caddy" depends on undefined service "web": invalid compose
+project` (the centum F1 class). Both behaviors above — mount dedupe by
+target and the `!override` reset — are pinned by
+`tools/deploy/foreign_ui_recipe_test.go`.
+
+**Your Caddyfile: one block is non-negotiable.** Keycloak runs with
+`--http-relative-path=/auth`, and the issuer your API validates is
+derived from the public `/auth` URL. Copy this verbatim (path-routed
+modes); breaking it kills login platform-wide:
+
+```
+handle /auth/* {
+    reverse_proxy keycloak:8080
+}
+```
+
+**Declare your path semantics explicitly.** asunset's demo API serves
+*unprefixed* routes, so the generated Caddyfile **strips** `/api`
+(`handle_path`). If your API serves routes *under* `/api/*` (OpsRoom's
+shape), you must **preserve** the prefix — this is the single easiest
+mistake in the swap:
+
+| Your API routes | Caddy directive |
+|---|---|
+| unprefixed (`/notes`, asunset demo style) | `handle_path /api/* { … }` — strips |
+| prefixed (`/api/...`) | `handle /api/* { … }` — preserves |
+
+Worked example — tailscale mode, SPA served same-origin by your API
+(replaces the generated `infra/caddy/Caddyfile`):
+
+```
+:5173 {
+    encode zstd gzip
+    handle /auth/* {
+        reverse_proxy keycloak:8080
+    }
+    # SPA + /api/* both live on your service; prefix preserved.
+    handle {
+        reverse_proxy your-api:8001
+    }
+    log {
+        output stdout
+        format console
+    }
+}
+```
+
+**TLS modes**: the three-vhost split collapses for a same-origin SPA —
+point both the web-host and api-host blocks at your service (or drop the
+api vhost and serve everything on one host; then `TLS_API_HOST` names
+your single ingress host). Keep the `{AuthHost}` block exactly as
+generated. Keep the security headers (`Strict-Transport-Security`,
+`X-Content-Type-Options`, `Referrer-Policy`, `-Server`) from the
+generated templates — you own reproducing that posture now; diff your
+Caddyfile against the generated one on every vendor bump.
+
+**Verify after every change**: `asunset doctor` probes the caddy edge
+(`edge-auth-route`) to confirm `/auth` still answers with the configured
+realm's discovery document through the front door — the recipe's
+non-negotiable, checked live.
+
 ## 6. Features, roles, sessions
 
 - **Feature permissions** — declare in `features.yaml`, gate with
