@@ -21,6 +21,7 @@ package main
 //   - and existing .env is found on subsequent runs.
 
 import (
+	"strings"
 	"os"
 	"path/filepath"
 )
@@ -72,12 +73,40 @@ func detectLayout() (Layout, error) {
 		consumerRoot := filepath.Dir(parent)
 		layout.Vendored = true
 		layout.ConsumerRoot = consumerRoot
-		if overlay := filepath.Join(consumerRoot, "compose.product.yml"); fileExists(overlay) {
+		// The overlay is compose.product.yml at the consumer root by
+		// convention, but consumers with an established deploy layout
+		// (OpsRoom: deploy/compose.prod.yml) point at theirs via
+		// PRODUCT_COMPOSE in .env — report 92 C.3.
+		overlay := filepath.Join(consumerRoot, "compose.product.yml")
+		if custom := productComposeFromEnv(consumerRoot); custom != "" {
+			if !filepath.IsAbs(custom) {
+				custom = filepath.Join(consumerRoot, custom)
+			}
+			overlay = custom
+		}
+		if fileExists(overlay) {
 			layout.ProductOverlay = overlay
 		}
 	}
 
 	return layout, nil
+}
+
+// productComposeFromEnv reads PRODUCT_COMPOSE from the consumer's .env
+// (cheap line scan — .env may not be loadable via loadExistingEnv here
+// without recursing into layout detection).
+func productComposeFromEnv(consumerRoot string) string {
+	data, err := os.ReadFile(filepath.Join(consumerRoot, ".env"))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if v, ok := strings.CutPrefix(line, "PRODUCT_COMPOSE="); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }
 
 func fileExists(path string) bool {
