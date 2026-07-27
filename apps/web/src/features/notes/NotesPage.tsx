@@ -5,6 +5,7 @@ import { Trans } from "react-i18next";
 import { Download, LayoutGrid, Rows3 } from "lucide-react";
 
 import { api, type Note, type NoteScope, type Team } from "@/api";
+import { useTeams } from "@/lib/platformHooks";
 import { RESOURCE } from "@/config/resource";
 import { AccessBadge } from "@/components/AccessBadge";
 import { PageHeader } from "@/components/PageHeader";
@@ -64,11 +65,8 @@ export function NotesPage() {
     { scope: "org", label: t("notes.tabOrg") },
   ];
 
-  const teamsQ = useQuery({
-    queryKey: ["teams"],
-    queryFn: () => api.listTeams(f),
-    enabled: !!token,
-  });
+  // Platform data rides the SDK hook — same cache entry TeamsPage uses.
+  const teamsQ = useTeams();
 
   // Derive the effective team id during render instead of syncing via
   // an Effect: when the user hasn't explicitly picked one, fall back to

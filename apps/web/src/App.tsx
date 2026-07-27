@@ -1,13 +1,7 @@
 import { Fragment, useCallback, useState } from "react";
-import {
-  useAuth,
-  useFetcher,
-  useIdleLogout,
-  useSilentBootstrap,
-} from "@asunset/web-sdk";
-import { useQuery } from "@tanstack/react-query";
+import { useAuth, useIdleLogout, useSilentBootstrap } from "@asunset/web-sdk";
 
-import { api } from "./api";
+import { useMe } from "./lib/platformHooks";
 import { BRAND } from "./config/brand";
 import { RESOURCE } from "./config/resource";
 import { CONSUMER_ROUTES } from "./config/routes";
@@ -87,8 +81,6 @@ function LoginShell({ children }: { children: React.ReactNode }) {
 function AuthedShell() {
   const auth = useAuth();
   const { t } = useT();
-  const f = useFetcher();
-  const token = f.accessToken;
   const [route, navigate] = useRoute();
 
   // HIPAA §164.312(a)(2)(iii): terminate inactive sessions. 15min idle +
@@ -110,11 +102,7 @@ function AuthedShell() {
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const requestLogout = useCallback(() => setLogoutConfirmOpen(true), []);
 
-  const meQ = useQuery({
-    queryKey: ["me"],
-    queryFn: () => api.me(f),
-    enabled: !!token,
-  });
+  const meQ = useMe();
 
   if (meQ.isLoading)
     return <CenteredSpinner label={t("common.loadingAccount")} />;

@@ -17,7 +17,13 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
       // Option S source-alias (docs/frontend-sdk-decision.md): the SDK
-      // ships as TypeScript source; this path is a contract surface.
+      // ships as TypeScript source; these paths are a contract surface.
+      // The /hooks subpath must come FIRST — alias matching is
+      // prefix-based and the base entry would otherwise swallow it.
+      "@asunset/web-sdk/hooks": path.resolve(
+        __dirname,
+        "../../packages/web-sdk/src/hooks.ts",
+      ),
       "@asunset/web-sdk": path.resolve(
         __dirname,
         "../../packages/web-sdk/src/index.ts",

@@ -1,10 +1,8 @@
 import { useState } from "react";
-import { useFetcher } from "@asunset/web-sdk";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Building2, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 
-import { api } from "@/api";
+import { useBootstrap } from "@/lib/platformHooks";
 import { useT } from "@/lib/useT";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -19,22 +17,12 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 
 export function BootstrapGate({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
-  const f = useFetcher();
-  const qc = useQueryClient();
   const { t } = useT();
   const [orgName, setOrgName] = useState("");
 
-  const mutation = useMutation({
-    mutationFn: () =>
-      api.bootstrap(
-        f,
-        { org_name: orgName.trim() },
-      ),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["me"] });
-      toast.success(t("bootstrap.created"));
-    },
-    onError: (e) => toast.error((e as Error).message),
+  const mutation = useBootstrap({
+    onSuccess: () => toast.success(t("bootstrap.created")),
+    onError: (e) => toast.error(e.message),
   });
 
   if (!isPlatformAdmin) {
@@ -74,7 +62,7 @@ export function BootstrapGate({ isPlatformAdmin }: { isPlatformAdmin: boolean })
           />
         </Field>
         <Button
-          onClick={() => mutation.mutate()}
+          onClick={() => mutation.mutate({ org_name: orgName.trim() })}
           disabled={orgName.trim().length === 0 || mutation.isPending}
         >
           {mutation.isPending && <Spinner className="size-4" />}

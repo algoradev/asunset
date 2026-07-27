@@ -30,7 +30,8 @@ export type {
 const core = createApiCore(import.meta.env.VITE_API_URL);
 const request = core.request;
 const requestText = core.requestText;
-const platform = createPlatformClient(core);
+// Exported for lib/platformHooks.ts (the Tier-2b hooks instance).
+export const platform = createPlatformClient(core);
 
 // --- Types (mirror the Pydantic schemas) ---
 

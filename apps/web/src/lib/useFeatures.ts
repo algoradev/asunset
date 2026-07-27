@@ -1,7 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
-import { useAuth } from "react-oidc-context";
-
-import { api } from "@/api";
+import { useFeatureSet } from "@/lib/platformHooks";
 import type { FeatureKey } from "@/config/features.gen";
 
 /**
@@ -14,21 +11,9 @@ import type { FeatureKey } from "@/config/features.gen";
  *
  *   const { has } = useFeatures();
  *   if (has("audit.view")) { ...render the audit nav item... }
+ *
+ * Typed against the generated union: a typo'd key is a COMPILE error.
  */
 export function useFeatures() {
-  const auth = useAuth();
-  const token = auth.user?.access_token;
-  const q = useQuery({
-    queryKey: ["me-features"],
-    queryFn: () => api.meFeatures({ accessToken: token }),
-    enabled: !!token,
-    staleTime: 60_000,
-  });
-  const set = new Set(q.data ?? []);
-  return {
-    features: set,
-    // Typed against the generated union: a typo'd key is a COMPILE error.
-    has: (key: FeatureKey) => set.has(key),
-    isLoading: q.isLoading,
-  };
+  return useFeatureSet<FeatureKey>();
 }

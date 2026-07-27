@@ -1,9 +1,7 @@
 import { useState } from "react";
-import { useAuth, useFetcher } from "@asunset/web-sdk";
-import { useQuery } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, Mail } from "lucide-react";
 
-import { api } from "@/api";
+import { useOrgMembers } from "@/lib/platformHooks";
 import { useT } from "@/lib/useT";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -37,14 +35,7 @@ export function UserCombobox({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
 
-  const auth = useAuth();
-  const f = useFetcher();
-  const membersQ = useQuery({
-    queryKey: ["org-members"],
-    queryFn: () => api.listOrgMembers(f),
-    enabled: open && !!auth.user,
-    staleTime: 60_000,
-  });
+  const membersQ = useOrgMembers({ enabled: open, staleTime: 60_000 });
 
   const members = membersQ.data ?? [];
   const trimmed = query.trim();

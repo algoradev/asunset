@@ -1,10 +1,17 @@
 import { useState } from "react";
-import { useAuth, useFetcher } from "@asunset/web-sdk";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@asunset/web-sdk";
 import { Building2, MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
 
-import { api, type Role } from "@/api";
+import { type Role } from "@/api";
+import {
+  useOrg,
+  useOrgMembers,
+  useResendInvite,
+  useRevokeInvite,
+  useRemoveOrgMember,
+  useUpdateOrgMemberRole,
+} from "@/lib/platformHooks";
 import { CopyButton } from "@/components/CopyButton";
 import { MemberTable, type MemberRow } from "@/components/MemberTable";
 import { PageHeader } from "@/components/PageHeader";
@@ -43,8 +50,6 @@ import { TempPasswordCallout } from "./TempPasswordCallout";
 export function OrgPage({ orgRole }: { orgRole: Role }) {
   const auth = useAuth();
   const { t } = useT();
-  const f = useFetcher();
-  const qc = useQueryClient();
 
   const isAdmin = orgRole === "admin";
   // KC's `sub` claim is the AppUser.id we render in member rows.
@@ -53,32 +58,19 @@ export function OrgPage({ orgRole }: { orgRole: Role }) {
   const meId =
     (auth.user?.profile as { sub?: string } | undefined)?.sub ?? null;
 
-  const orgQ = useQuery({
-    queryKey: ["org"],
-    queryFn: () => api.getOrg(f),
-  });
-  const membersQ = useQuery({
-    queryKey: ["org-members"],
-    queryFn: () => api.listOrgMembers(f),
+  const orgQ = useOrg();
+  const membersQ = useOrgMembers();
+
+  // Invalidation lives in the SDK hooks; only the toasts are ours.
+  const updateRoleM = useUpdateOrgMemberRole({
+    onSuccess: (_data, vars) =>
+      toast.success(t("org.roleUpdated", { role: vars.newRole })),
+    onError: (e) => toast.error(e.message),
   });
 
-  const updateRoleM = useMutation({
-    mutationFn: ({ userId, newRole }: { userId: string; newRole: Role }) =>
-      api.updateOrgMemberRole(f, userId, newRole),
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ["org-members"] });
-      toast.success(t("org.roleUpdated", { role: vars.newRole }));
-    },
-    onError: (e) => toast.error((e as Error).message),
-  });
-
-  const removeM = useMutation({
-    mutationFn: (userId: string) => api.removeOrgMember(f, userId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["org-members"] });
-      toast.success(t("org.memberRemoved"));
-    },
-    onError: (e) => toast.error((e as Error).message),
+  const removeM = useRemoveOrgMember({
+    onSuccess: () => toast.success(t("org.memberRemoved")),
+    onError: (e) => toast.error(e.message),
   });
 
   // When resend lands a temp password, surface it through the same
@@ -89,9 +81,7 @@ export function OrgPage({ orgRole }: { orgRole: Role }) {
     password: string;
   } | null>(null);
 
-  const resendM = useMutation({
-    mutationFn: (vars: { userId: string; email: string }) =>
-      api.resendOrgInvite(f, vars.userId).then((r) => ({ result: r, email: vars.email })),
+  const resendM = useResendInvite({
     onSuccess: ({ result, email: recipient }) => {
       if (result.delivery === "temporary_password" && result.temporary_password) {
         setResendTempPassword({
@@ -103,16 +93,12 @@ export function OrgPage({ orgRole }: { orgRole: Role }) {
         toast.success(t("invite.resendSuccessMagic"));
       }
     },
-    onError: (e) => toast.error((e as Error).message || t("invite.resendFailed")),
+    onError: (e) => toast.error(e.message || t("invite.resendFailed")),
   });
 
-  const revokeM = useMutation({
-    mutationFn: (userId: string) => api.revokeOrgInvite(f, userId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["org-members"] });
-      toast.success(t("invite.revokeSuccess"));
-    },
-    onError: (e) => toast.error((e as Error).message || t("invite.revokeFailed")),
+  const revokeM = useRevokeInvite({
+    onSuccess: () => toast.success(t("invite.revokeSuccess")),
+    onError: (e) => toast.error(e.message || t("invite.revokeFailed")),
   });
 
   return (
@@ -210,13 +196,13 @@ export function OrgPage({ orgRole }: { orgRole: Role }) {
                             email: m.user.email,
                           })
                         }
-                        onRevoke={() => revokeM.mutate(m.user.id)}
+                        onRevoke={() => revokeM.mutate({ userId: m.user.id })}
                         busy={resendM.isPending || revokeM.isPending}
                       />
                     ) : (
                       <RemoveAction
                         name={m.user.display_name}
-                        onConfirm={() => removeM.mutate(m.user.id)}
+                        onConfirm={() => removeM.mutate({ userId: m.user.id })}
                         busy={removeM.isPending}
                       />
                     );

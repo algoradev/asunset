@@ -1,20 +1,13 @@
-import { useQuery } from "@tanstack/react-query";
-import { useFetcher } from "@asunset/web-sdk";
 
-import { api } from "@/api";
+import { useOrg } from "@/lib/platformHooks";
 import { BRAND } from "@/config/brand";
 import { useT } from "@/lib/useT";
 import { SettingRow, SettingRowGroup } from "../SettingRow";
 
 export function AboutSection() {
   const { t } = useT();
-  const f = useFetcher();
 
-  const orgQ = useQuery({
-    queryKey: ["org"],
-    queryFn: () => api.getOrg(f),
-    staleTime: 60_000,
-  });
+  const orgQ = useOrg({ staleTime: 60_000 });
 
   return (
     <SettingRowGroup>

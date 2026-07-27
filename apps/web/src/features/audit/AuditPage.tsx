@@ -1,6 +1,4 @@
 import { Fragment, useMemo, useState } from "react";
-import { useFetcher } from "@asunset/web-sdk";
-import { useQuery } from "@tanstack/react-query";
 import {
   type ColumnDef,
   type SortingState,
@@ -23,7 +21,8 @@ import {
   Search,
 } from "lucide-react";
 
-import { api, type AuditEvent, type Role } from "@/api";
+import { type AuditEvent, type Role } from "@/api";
+import { useAudit } from "@/lib/platformHooks";
 import { CopyButton } from "@/components/CopyButton";
 import { PageHeader } from "@/components/PageHeader";
 import { useT } from "@/lib/useT";
@@ -59,7 +58,6 @@ import { ErrorState } from "@/components/States";
 
 export function AuditPage({ orgRole }: { orgRole: Role }) {
   const { t } = useT();
-  const f = useFetcher();
 
   const [eventType, setEventType] = useState("");
   const [traceId, setTraceId] = useState("");
@@ -67,17 +65,17 @@ export function AuditPage({ orgRole }: { orgRole: Role }) {
   const [until, setUntil] = useState("");
   const [limit, setLimit] = useState(100);
 
-  const eventsQ = useQuery({
-    queryKey: ["audit", { eventType, traceId, since, until, limit }],
-    queryFn: () =>
-      api.listAuditEvents(f, {
-        event_type: eventType || undefined,
-        trace_id: traceId || undefined,
-        since: since ? new Date(since).toISOString() : undefined,
-        until: until ? new Date(until + "T23:59:59").toISOString() : undefined,
-        limit,
-      }),
-  });
+  const filters = useMemo(
+    () => ({
+      event_type: eventType || undefined,
+      trace_id: traceId || undefined,
+      since: since ? new Date(since).toISOString() : undefined,
+      until: until ? new Date(until + "T23:59:59").toISOString() : undefined,
+      limit,
+    }),
+    [eventType, traceId, since, until, limit],
+  );
+  const eventsQ = useAudit(filters);
 
   return (
     <div className="page-container">

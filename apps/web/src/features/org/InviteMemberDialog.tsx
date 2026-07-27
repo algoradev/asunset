@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useFetcher } from "@asunset/web-sdk";
+import { ApiError } from "@asunset/web-sdk";
 import { toast } from "sonner";
 import { UserPlus } from "lucide-react";
 
-import { api, type InviteResult, type Role } from "@/api";
+import { type Role } from "@/api";
+import { useInviteMember } from "@/lib/platformHooks";
 import { useT } from "@/lib/useT";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,8 +31,6 @@ import { TempPasswordCallout } from "./TempPasswordCallout";
 
 export function InviteMemberDialog() {
   const { t } = useT();
-  const f = useFetcher();
-  const qc = useQueryClient();
 
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
@@ -51,11 +49,8 @@ export function InviteMemberDialog() {
     setTempPasswordView(null);
   };
 
-  const inviteM = useMutation<InviteResult, Error, void>({
-    mutationFn: () =>
-      api.inviteOrgMember(f, { email: email.trim(), role }),
+  const inviteM = useInviteMember({
     onSuccess: (result) => {
-      qc.invalidateQueries({ queryKey: ["org-members"] });
       const recipient = result.member.user.email;
 
       if (result.delivery === "temporary_password" && result.temporary_password) {
@@ -80,13 +75,12 @@ export function InviteMemberDialog() {
       setOpen(false);
     },
     onError: (e) => {
-      // Backend returns 409 for "already a member" — surface a friendlier
-      // message than the raw status text.
-      const msg = e.message || "";
-      if (msg.toLowerCase().includes("already a member")) {
+      // Branch on the structured code, never the message text — the
+      // backend emits {code: "already_a_member"} for both invite-409s.
+      if (e instanceof ApiError && e.code === "already_a_member") {
         toast.error(t("invite.alreadyMember", { email: email.trim() }));
       } else {
-        toast.error(msg);
+        toast.error(e.message);
       }
     },
   });
@@ -129,7 +123,7 @@ export function InviteMemberDialog() {
             className="space-y-4"
             onSubmit={(e) => {
               e.preventDefault();
-              if (canSubmit) inviteM.mutate();
+              if (canSubmit) inviteM.mutate({ email: email.trim(), role });
             }}
           >
             <div className="space-y-1.5">

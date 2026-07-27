@@ -129,6 +129,48 @@ are exported. Your product's own resources stay in your own client —
 this surface is platform-only, and it grows via subtree pull, not via
 your fork.
 
+**Error handling**: non-2xx throws `ApiError` with `status`, a clean
+`message`, the server-echoed `correlationId`, and — when the API
+provides one — a stable `code`. Branch UI on `code`, never by matching
+message strings (messages are copy, codes are contract):
+
+```ts
+catch (e) {
+  if (e instanceof ApiError && e.code === "already_a_member") { ... }
+}
+```
+
+## Tier 2b — headless hooks (opt-in, TanStack)
+
+If your app runs `@tanstack/react-query` (^5), the hooks layer owns
+what's expensive to get wrong — query keys, cache invalidation, the
+composite flows (email→lookup→add; resend carrying the recipient email
+through), token-gated enabling — and nothing about presentation.
+Separate entry so 2a-only consumers never resolve TanStack:
+
+```ts
+// alias BOTH paths — the /hooks entry FIRST (alias matching is prefix-based):
+//   "@asunset/web-sdk/hooks" → vendor/asunset/packages/web-sdk/src/hooks.ts
+//   "@asunset/web-sdk"       → vendor/asunset/packages/web-sdk/src/index.ts
+import { createPlatformHooks, platformKeys } from "@asunset/web-sdk/hooks";
+
+export const { useMe, useOrgMembers, useTeams, useInviteMember, ... } =
+  createPlatformHooks(platform);
+
+// pages keep only their own UI reactions:
+const inviteM = useInviteMember({
+  onSuccess: (result) => {/* your toast, your dialog state */},
+  onError: (e) => {/* branch on e.code, render your copy */},
+});
+inviteM.mutate({ email, role });
+```
+
+Invalidations run in the hook regardless of your callbacks; invalidate
+custom cache entries through `platformKeys`, never hand-typed strings.
+`useFeatureSet<YourFeatureKey>()` gives compile-checked feature gating
+over your generated key union. The reference app's org/teams/audit
+pages consume exactly these hooks — read them as the worked example.
+
 ## Local dev against the smoke stack (copy-paste)
 
 A foreign Vite app on `localhost:5173` talking to a local asunset stack

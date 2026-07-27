@@ -258,6 +258,13 @@ Caddyfile against the generated one on every vendor bump.
 realm's discovery document through the front door — the recipe's
 non-negotiable, checked live.
 
+**API error contract:** structured error codes, never message-string
+matching. Error responses that UIs must branch on carry
+`{"detail": {"code": "...", "message": "..."}}`; the web-sdk surfaces
+`code` on `ApiError`. Matching on message text is a review flag — the
+same brittleness class twice caught in the field (the invite dialog's
+already-a-member match; the deck resolution seam).
+
 ## 6. Features, roles, sessions
 
 - **Feature permissions** — declare in `features.yaml`, gate with

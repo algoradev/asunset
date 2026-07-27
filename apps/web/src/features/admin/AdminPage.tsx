@@ -1,10 +1,9 @@
-import { useFetcher } from "@asunset/web-sdk";
-import { useMutation } from "@tanstack/react-query";
 import { Trans } from "react-i18next";
 import { ChevronRight, Play, Shield } from "lucide-react";
 import { toast } from "sonner";
 
-import { api, type ReconcileReport } from "@/api";
+import { type ReconcileReport } from "@/api";
+import { useReconcileFga } from "@/lib/platformHooks";
 import { PageHeader } from "@/components/PageHeader";
 import { useT } from "@/lib/useT";
 import { Button } from "@/components/ui/button";
@@ -14,10 +13,8 @@ import { Spinner } from "@/components/ui/spinner";
 
 export function AdminPage() {
   const { t } = useT();
-  const f = useFetcher();
 
-  const reconcileM = useMutation({
-    mutationFn: () => api.reconcileFga(f),
+  const reconcileM = useReconcileFga({
     onSuccess: (r) =>
       toast.success(
         r.missing_tuples === 0
@@ -27,7 +24,7 @@ export function AdminPage() {
               missing: r.missing_tuples,
             }),
       ),
-    onError: (e) => toast.error((e as Error).message),
+    onError: (e) => toast.error(e.message),
   });
 
   const report: ReconcileReport | undefined = reconcileM.data;

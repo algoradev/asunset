@@ -16,9 +16,38 @@ export class ApiError extends Error {
     public readonly status: number,
     message: string,
     public readonly correlationId: string,
+    /**
+     * Stable machine-readable error code when the API provides one
+     * (`{"detail": {"code": "...", "message": "..."}}`). Branch UI on
+     * THIS, never by matching message strings — messages are copy,
+     * codes are contract.
+     */
+    public readonly code?: string,
   ) {
     super(message);
   }
+}
+
+/** Extract {message, code} from an error body (FastAPI detail shapes). */
+export function parseErrorBody(text: string, fallback: string): {
+  message: string;
+  code?: string;
+} {
+  let message = text || fallback;
+  let code: string | undefined;
+  try {
+    const detail: unknown = (JSON.parse(text) as { detail?: unknown }).detail;
+    if (typeof detail === "string") {
+      message = detail;
+    } else if (detail && typeof detail === "object") {
+      const d = detail as { message?: unknown; code?: unknown };
+      if (typeof d.message === "string") message = d.message;
+      if (typeof d.code === "string") code = d.code;
+    }
+  } catch {
+    // non-JSON body — keep the raw text
+  }
+  return { message, code };
 }
 
 export type Fetcher = {
@@ -70,10 +99,12 @@ export function createApiCore(baseUrl: string): ApiCore {
     const resp = await fetch(`${baseUrl}${path}`, { ...init, headers });
     if (!resp.ok) {
       const text = await resp.text().catch(() => "");
+      const { message, code } = parseErrorBody(text, resp.statusText);
       throw new ApiError(
         resp.status,
-        text || resp.statusText,
+        message,
         resp.headers.get("X-Correlation-Id") ?? correlationId,
+        code,
       );
     }
     return resp;

@@ -1,10 +1,17 @@
 import { useState } from "react";
-import { useFetcher } from "@asunset/web-sdk";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Plus, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 
-import { api, type Role, type Team } from "@/api";
+import { type Role, type Team } from "@/api";
+import {
+  useAddTeamMember,
+  useCreateTeam,
+  useDeleteTeam,
+  useRemoveTeamMember,
+  useTeamMembers,
+  useTeams,
+  useUpdateTeamMemberRole,
+} from "@/lib/platformHooks";
 import { AddMemberRow } from "@/components/AddMemberRow";
 import { MemberTable } from "@/components/MemberTable";
 import { PageHeader } from "@/components/PageHeader";
@@ -55,24 +62,15 @@ import { Spinner } from "@/components/ui/spinner";
 
 export function TeamsPage({ orgRole }: { orgRole: Role }) {
   const { t } = useT();
-  const f = useFetcher();
-  const qc = useQueryClient();
 
   const isOrgAdmin = orgRole === "admin";
   const [createOpen, setCreateOpen] = useState(false);
 
-  const teamsQ = useQuery({
-    queryKey: ["teams"],
-    queryFn: () => api.listTeams(f),
-  });
+  const teamsQ = useTeams();
 
-  const deleteM = useMutation({
-    mutationFn: (id: string) => api.deleteTeam(f, id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["teams"] });
-      toast.success(t("teams.deletedToast"));
-    },
-    onError: (e) => toast.error((e as Error).message),
+  const deleteM = useDeleteTeam({
+    onSuccess: () => toast.success(t("teams.deletedToast")),
+    onError: (e) => toast.error(e.message),
   });
 
   return (
@@ -121,7 +119,7 @@ export function TeamsPage({ orgRole }: { orgRole: Role }) {
               key={team.id}
               team={team}
               isOrgAdmin={isOrgAdmin}
-              onDelete={() => deleteM.mutate(team.id)}
+              onDelete={() => deleteM.mutate({ teamId: team.id })}
               deleting={deleteM.isPending}
             />
           ))}
@@ -138,24 +136,16 @@ function CreateTeamDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const qc = useQueryClient();
   const { t } = useT();
-  const f = useFetcher();
   const [name, setName] = useState("");
 
-  const createM = useMutation({
-    mutationFn: () =>
-      api.createTeam(
-        f,
-        { name: name.trim() },
-      ),
+  const createM = useCreateTeam({
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["teams"] });
       setName("");
       onOpenChange(false);
       toast.success(t("teams.createdToast"));
     },
-    onError: (e) => toast.error((e as Error).message),
+    onError: (e) => toast.error(e.message),
   });
 
   return (
@@ -187,7 +177,7 @@ function CreateTeamDialog({
             {t("common.cancel")}
           </Button>
           <Button
-            onClick={() => createM.mutate()}
+            onClick={() => createM.mutate({ name: name.trim() })}
             disabled={name.trim().length === 0 || createM.isPending}
           >
             {createM.isPending && <Spinner className="size-4" />}
@@ -285,47 +275,31 @@ function TeamMembersPanel({
   canManage: boolean;
 }) {
   const { t } = useT();
-  const f = useFetcher();
-  const qc = useQueryClient();
 
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("member");
 
-  const membersQ = useQuery({
-    queryKey: ["team-members", team.id],
-    queryFn: () => api.listTeamMembers(f, team.id),
-  });
+  const membersQ = useTeamMembers(team.id);
 
-  const addM = useMutation({
-    mutationFn: async () => {
-      const user = await api.lookupUser(f, email.trim());
-      return api.addTeamMember(f, team.id, { user_id: user.id, role });
-    },
+  // The lookup→add composite lives in the SDK hook; the invalidation
+  // scope (this team only) does too.
+  const addM = useAddTeamMember({
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["team-members", team.id] });
       setEmail("");
       toast.success(t("teams.memberAdded"));
     },
-    onError: (e) => toast.error((e as Error).message),
+    onError: (e) => toast.error(e.message),
   });
 
-  const updateRoleM = useMutation({
-    mutationFn: ({ userId, newRole }: { userId: string; newRole: Role }) =>
-      api.updateTeamMemberRole(f, team.id, userId, newRole),
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ["team-members", team.id] });
-      toast.success(t("teams.roleUpdated", { role: vars.newRole }));
-    },
-    onError: (e) => toast.error((e as Error).message),
+  const updateRoleM = useUpdateTeamMemberRole({
+    onSuccess: (_data, vars) =>
+      toast.success(t("teams.roleUpdated", { role: vars.newRole })),
+    onError: (e) => toast.error(e.message),
   });
 
-  const removeM = useMutation({
-    mutationFn: (userId: string) => api.removeTeamMember(f, team.id, userId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["team-members", team.id] });
-      toast.success(t("teams.memberRemoved"));
-    },
-    onError: (e) => toast.error((e as Error).message),
+  const removeM = useRemoveTeamMember({
+    onSuccess: () => toast.success(t("teams.memberRemoved")),
+    onError: (e) => toast.error(e.message),
   });
 
   return (
@@ -352,7 +326,7 @@ function TeamMembersPanel({
           onRoleChange={
             canManage
               ? (userId, newRole) =>
-                  updateRoleM.mutate({ userId, newRole })
+                  updateRoleM.mutate({ teamId: team.id, userId, newRole })
               : undefined
           }
           roleBusy={
@@ -391,7 +365,7 @@ function TeamMembersPanel({
                         </AlertDialogCancel>
                         <AlertDialogAction
                           className={buttonVariants({ variant: "destructive" })}
-                          onClick={() => removeM.mutate(m.user.id)}
+                          onClick={() => removeM.mutate({ teamId: team.id, userId: m.user.id })}
                         >
                           {t("common.remove")}
                         </AlertDialogAction>
@@ -411,7 +385,7 @@ function TeamMembersPanel({
           onEmailChange={setEmail}
           role={role}
           onRoleChange={setRole}
-          onSubmit={() => addM.mutate()}
+          onSubmit={() => addM.mutate({ teamId: team.id, email: email.trim(), role })}
           busy={addM.isPending}
         />
       )}

@@ -95,6 +95,31 @@ describe("createApiCore.requestText", () => {
   });
 });
 
+describe("structured error codes", () => {
+  it("surfaces {detail:{code,message}} as ApiError.code + clean message", async () => {
+    mockFetch({
+      status: 409,
+      body: JSON.stringify({
+        detail: { code: "already_a_member", message: "already a member" },
+      }),
+    });
+    const err = (await createApiCore("")
+      .request("/orgs/current/invites", { method: "POST" }, { accessToken: "t" })
+      .catch((e: unknown) => e)) as ApiError;
+    expect(err.code).toBe("already_a_member");
+    expect(err.message).toBe("already a member");
+  });
+
+  it("plain-string detail keeps message, no code", async () => {
+    mockFetch({ status: 409, body: JSON.stringify({ detail: "no can do" }) });
+    const err = (await createApiCore("")
+      .request("/x", {}, { accessToken: "t" })
+      .catch((e: unknown) => e)) as ApiError;
+    expect(err.message).toBe("no can do");
+    expect(err.code).toBeUndefined();
+  });
+});
+
 describe("authHeaders", () => {
   it("produces the seam shape for foreign clients", () => {
     const h = authHeaders({ accessToken: "tok" });

@@ -291,7 +291,13 @@ async def add_member(
         )
     ).scalar_one_or_none()
     if existing is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, "already a member")
+        # Structured detail: UIs branch on `code`, never on message text
+        # (messages are copy, codes are contract — the web-sdk surfaces
+        # this as ApiError.code).
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"code": "already_a_member", "message": "already a member"},
+        )
 
     member = OrgMember(org_id=org.org_id, user_id=body.user_id, role=body.role)
     session.add(member)
@@ -629,7 +635,11 @@ async def invite_member(
         if existing.role != body.role:
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
-                "already a member with a different role — use PATCH to change role",
+                {
+                    "code": "already_a_member",
+                    "message": "already a member with a different role — "
+                    "use PATCH to change role",
+                },
             )
         delivery, temp_password = await bootstrap()
         await audit.emit(

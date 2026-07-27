@@ -18,7 +18,8 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
-      "@asunset/web-sdk": ["../../packages/web-sdk/src/index.ts"]
+      "@asunset/web-sdk": ["../../packages/web-sdk/src/index.ts"],
+      "@asunset/web-sdk/hooks": ["../../packages/web-sdk/src/hooks.ts"]
     }
   },
   "include": ["src", "../../packages/web-sdk/src"],

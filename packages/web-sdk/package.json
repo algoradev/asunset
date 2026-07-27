@@ -2,10 +2,11 @@
   "name": "@asunset/web-sdk",
   "version": "0.1.0",
   "private": true,
-  "description": "asunset browser auth kernel (Tier 1) — OIDC/PKCE config, in-memory tokens, silent renew, idle logout, correlation+bearer fetch core. Headless: no components, no i18n, no styling.",
+  "description": "asunset browser auth kernel (Tier 1) \u2014 OIDC/PKCE config, in-memory tokens, silent renew, idle logout, correlation+bearer fetch core. Headless: no components, no i18n, no styling.",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./hooks": "./src/hooks.ts"
   },
   "scripts": {
     "test": "vitest run",
@@ -14,9 +15,11 @@
   "peerDependencies": {
     "oidc-client-ts": "^3.0.0",
     "react": "^18.0.0 || ^19.0.0",
-    "react-oidc-context": "^3.0.0"
+    "react-oidc-context": "^3.0.0",
+    "@tanstack/react-query": "^5.0.0"
   },
   "devDependencies": {
+    "@tanstack/react-query": "^5.59.0",
     "@testing-library/react": "^16.1.0",
     "@types/react": "^18.3.12",
     "jsdom": "^25.0.1",
@@ -26,5 +29,10 @@
     "react-oidc-context": "^3.2.0",
     "typescript": "^5.6.3",
     "vitest": "^2.1.8"
+  },
+  "peerDependenciesMeta": {
+    "@tanstack/react-query": {
+      "optional": true
+    }
   }
 }
