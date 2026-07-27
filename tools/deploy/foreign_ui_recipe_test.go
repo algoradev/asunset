@@ -63,6 +63,29 @@ func TestFrontendSDKDecisionRecordExists(t *testing.T) {
 	}
 }
 
+func TestForeignConsumerFixtureExists(t *testing.T) {
+	// examples/foreign-ui-min is the permanent second compile shape for
+	// the SDK (relay's Option-S guard: reference app + one foreign
+	// consumer). Built docs-only by caliper (exercise 4); it must keep
+	// consuming via the documented alias, never by reaching into apps/web.
+	viteCfg := readRepoFile(t, "examples/foreign-ui-min/vite.config.ts")
+	if !strings.Contains(viteCfg, "@asunset/web-sdk") {
+		t.Error("foreign-ui-min must alias @asunset/web-sdk (Option S)")
+	}
+	appSrc := readRepoFile(t, "examples/foreign-ui-min/src/main.tsx")
+	for _, must := range []string{
+		"AsunsetAuthProvider", "useSilentBootstrap", "useIdleLogout",
+		"useFetcher", "createPlatformClient",
+	} {
+		if !strings.Contains(appSrc, must) {
+			t.Errorf("foreign-ui-min lost its %s wiring — the fixture no longer proves the contract", must)
+		}
+	}
+	if strings.Contains(appSrc, "apps/web") {
+		t.Error("foreign-ui-min must not reach into apps/web")
+	}
+}
+
 func TestDoctorProbesTheFrontDoorAuthRoute(t *testing.T) {
 	doctor := readRepoFile(t, "tools/deploy/doctor.go")
 	if !strings.Contains(doctor, `"edge-auth-route"`) {

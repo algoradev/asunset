@@ -335,7 +335,7 @@ Two notes for consumers:
 
 **Product API gate:** mount asunset's platform routers and inherit the composed dependency chain (§7.4) rather than assembling principal/org/session yourself. Emit audit through the sink so attribution matches the rest of the platform (§8). Define product event types as a str-enum.
 
-**Web UI:** ride the flow in §6. Keycloak's `ssoSessionIdleTimeout` is the authoritative session cap; the idle hook is UX. Redirect/origin URIs are derived from the deployment hostname — do not hand-set them per environment. Revisit `localStorage` token storage for regulated deployments.
+**Web UI:** ride the flow in §6 — via `@asunset/web-sdk`, which is the one implementation of it (hand-rolled browser auth is a review-blocker; `frontend-sdk-decision.md`). Keycloak's `ssoSessionIdleTimeout` is the authoritative session cap; the idle hook is UX. Redirect/origin URIs are derived from the deployment hostname — do not hand-set them per environment. Token storage is in-memory (see the §6.1 amendment of 2026-07-27; a stale "revisit `localStorage`" sentence stood here until the same date — caliper exercise 4 caught the leftover).
 
 **Orchestration + MCP:** pure resource server — validate and stop. No login UI, no introspection call. Carry `sid` into your own records so sessions correlate. §9 is the constraint to design around, and §3/D6 determines whether a token minted for the UI is meant to be valid at your endpoint at all.
 

@@ -129,6 +129,48 @@ are exported. Your product's own resources stay in your own client —
 this surface is platform-only, and it grows via subtree pull, not via
 your fork.
 
+## Local dev against the smoke stack (copy-paste)
+
+A foreign Vite app on `localhost:5173` talking to a local asunset stack
+(compose project from this repo, defaults):
+
+```ts
+// OIDC — the dev realm's values:
+const oidcConfig = createOidcConfig({
+  keycloakUrl: "http://localhost:8080",
+  realm: "asunset",
+  clientId: "asunset-web",   // dev client already allows localhost:5173 origins
+});
+```
+
+```ts
+// vite.config.ts — createApiCore("") means same-origin, so proxy the
+// FULL platform surface to the api container (not just the two paths
+// you call first; the client also uses /teams, /users, /audit):
+server: {
+  proxy: Object.fromEntries(
+    ["/platform", "/orgs", "/teams", "/users", "/audit"].map((p) => [
+      p, { target: "http://localhost:8000", changeOrigin: true },
+    ]),
+  ),
+},
+build: {
+  rollupOptions: {
+    input: { main: "index.html", "silent-renew": "silent-renew.html" },
+  },
+},
+```
+
+Dev-realm caveat: seeded users can carry `requiredActions` (e.g.
+`CONFIGURE_TOTP`) that block sign-in with "Account is not fully set up"
+— the recovery dance is documented in
+[`docs/runbooks/operator-token.md`](../../docs/runbooks/operator-token.md).
+
+A complete working fixture lives at
+[`examples/foreign-ui-min/`](../../examples/foreign-ui-min/) — the
+permanent foreign-consumer compile fixture, built docs-only by caliper
+(exercise 4).
+
 ## The CSP corollary (not optional)
 
 In-memory tokens are only as strong as the XSS posture around them. If
