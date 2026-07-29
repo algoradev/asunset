@@ -73,9 +73,12 @@ func TestForeignConsumerFixtureExists(t *testing.T) {
 		t.Error("foreign-ui-min must alias @asunset/web-sdk (Option S)")
 	}
 	appSrc := readRepoFile(t, "examples/foreign-ui-min/src/main.tsx")
+	// Since exercise 5 the fixture consumes the Tier-2b hooks (which
+	// carry the fetcher internally) — the pin follows the contract, not
+	// a particular import list.
 	for _, must := range []string{
 		"AsunsetAuthProvider", "useSilentBootstrap", "useIdleLogout",
-		"useFetcher", "createPlatformClient",
+		"createPlatformClient", "createPlatformHooks",
 	} {
 		if !strings.Contains(appSrc, must) {
 			t.Errorf("foreign-ui-min lost its %s wiring — the fixture no longer proves the contract", must)

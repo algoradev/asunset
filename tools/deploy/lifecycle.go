@@ -86,7 +86,58 @@ func requireMode() Mode {
 }
 
 func cmdUp() {
-	runPassthrough(composeFor(requireMode(), "up", "-d")...)
+	mode := requireMode()
+	layout, err := detectLayout()
+	if err != nil {
+		die(err)
+	}
+	m := layout.Manifest
+	if m == nil {
+		runPassthrough(composeFor(mode, "up", "-d")...)
+		return
+	}
+
+	// Manifest-driven up (report 95): coherence gate → infra up →
+	// sequenced product one-shots → doctor-gated "ready".
+	//
+	// The coherence gate makes the trap-#3 class inexpressible: a
+	// caddy-bearing mode with no declared Caddyfile refuses here, not
+	// at a dead ingress.
+	if _, err := m.CaddyfileFor(mode); err != nil {
+		die(err)
+	}
+
+	if err := run(composeFor(mode, "up", "-d")...); err != nil {
+		die(err)
+	}
+
+	// Product init: the MECHANICAL half only (infra-only boundary) —
+	// runs after infra so its checks see the real stack. Idempotent by
+	// contract (relay guard 4): re-running is always safe.
+	if m.Init != "" {
+		fmt.Printf("→ product init (%s)\n", m.Init)
+		if err := run(composeFor(mode, "run", "--rm", m.Init)...); err != nil {
+			fmt.Fprintf(os.Stderr, "\nPARTIAL STATE: stack is up but product init FAILED.\n"+
+				"Fix and re-run `asunset up` (init is idempotent by contract).\n")
+			os.Exit(1)
+		}
+	}
+
+	// Product doctor gates READY, not start: an exit-1 (any FAIL line)
+	// leaves the stack running and reports partial state honestly.
+	// Warns are tolerated — pre-adoption has ruled-honest warn states
+	// (auth-enforcement, unstamped, no-store).
+	if m.Doctor != "" {
+		fmt.Printf("→ product doctor (%s)\n", m.Doctor)
+		if err := run(composeFor(mode, "run", "--rm", m.Doctor)...); err != nil {
+			fmt.Fprintf(os.Stderr, "\nPARTIAL STATE: stack is up but the product doctor reports FAILURES — not ready.\n")
+			os.Exit(1)
+		}
+	}
+
+	fmt.Printf("\nready — %s is up (mode %s).\n", m.Name, mode)
+	fmt.Println("Pre-adoption warns (auth-enforcement, unstamped, no-store) are named states, not failures.")
+	fmt.Println("Platform verify: asunset doctor")
 }
 
 func cmdDown() {

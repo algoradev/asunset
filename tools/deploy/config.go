@@ -35,6 +35,12 @@ type Config struct {
 	// and does path-based routing.
 	TailscaleHost string
 
+	// DevLoopback marks the `asunset dev` flavor: the tailscale
+	// (path-multiplexed caddy) topology served on http://127.0.0.1:5173
+	// with NO tailnet — TAILSCALE_HOST stays empty; WEB_BASE_URL /
+	// KC_BASE_URL overrides carry the loopback origin instead.
+	DevLoopback bool
+
 	// WipeVolumes is set when the user chose to regenerate secrets on
 	// top of an existing deployment. The launch step respects it by
 	// running `compose down -v` before `up` so Postgres init re-seeds
@@ -81,8 +87,12 @@ func (c Config) IsTailscale() bool { return c.Mode == ModeTailscale }
 
 // Exported so text/template can resolve them as field references.
 
+const devLoopbackOrigin = "http://127.0.0.1:5173"
+
 func (c Config) WebURL() string {
 	switch {
+	case c.DevLoopback:
+		return devLoopbackOrigin
 	case c.IsTLS():
 		return "https://" + c.WebHost
 	case c.IsTailscale():
@@ -93,6 +103,8 @@ func (c Config) WebURL() string {
 
 func (c Config) AuthURL() string {
 	switch {
+	case c.DevLoopback:
+		return devLoopbackOrigin + "/auth"
 	case c.IsTLS():
 		return "https://" + c.AuthHost
 	case c.IsTailscale():
@@ -103,6 +115,8 @@ func (c Config) AuthURL() string {
 
 func (c Config) APIURL() string {
 	switch {
+	case c.DevLoopback:
+		return devLoopbackOrigin + "/api"
 	case c.IsTLS():
 		return "https://" + c.APIHost
 	case c.IsTailscale():

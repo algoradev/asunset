@@ -60,6 +60,46 @@ layout, includes your overlay, and places `.env` correctly):
 ./vendor/asunset/tools/deploy/asunset doctor   # always after init/up
 ```
 
+The full operator surface is five verbs: `dev · init · up · doctor ·
+upgrade`. `dev` brings up the zero-prompt loopback integration stack
+(`http://127.0.0.1:5173`, all secrets generated — it never prompts and
+refuses to touch a configured deployment). `upgrade` is the
+post-vendor-pull roll (rebuild what bakes, force-recreate
+keycloak-init, both doctors) — it **never touches your git**; the
+subtree pull stays yours/CI's (§8 has the dirty-tree recipe).
+
+### The product deploy manifest (`product.yaml`)
+
+Declare your deploy contract in `product.yaml` at the consumer root and
+the CLI becomes your single door (ruled in the report-95 cycle;
+supersedes the older `PRODUCT_COMPOSE` env pointer, which still works
+but warns):
+
+```yaml
+version: 1
+name: your-product
+compose: deploy/compose.product.yml   # your overlay
+caddyfile:                            # foreign-UI consumers only —
+  tailscale: deploy/Caddyfile         # per-mode map; a mode with no
+                                      # entry REFUSES at `up`
+env:
+  generate: [YOURPRODUCT_PG_PASSWORD] # generated into the ONE root .env
+                                      # alongside asunset's secrets;
+                                      # never rotated on re-init
+init: your-init-service               # one-shots the CLI sequences:
+doctor: your-doctor-service           # init after infra, doctor gates "ready"
+```
+
+The boundary is **infra-only** (ratified doctrine): the manifest may
+declare secrets to *generate* and one-shots to *sequence* — never
+prompts for product-domain values. Product questions (org names,
+instance identity) live in the product, the way asunset's own org is
+created by the BootstrapGate, not by `init`. Your one-shots must be
+idempotent — `up` re-runs them freely. A failing product doctor leaves
+the stack running and reports **partial state** honestly; ruled
+pre-adoption warns (auth-enforcement, unstamped, no-store) are named
+states, not failures.
+
 **Modes** (`compose.<mode>.yml`): nothing (plain, localhost dev) ·
 `tls` (per-hostname HTTPS via Caddy) · `tailscale` (single hostname,
 path-routed, tailnet-only). `compose.cohost.yml` is only for the

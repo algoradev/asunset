@@ -43,9 +43,11 @@ func TestTailscaleOverlayThreadsHostToKeycloakInit(t *testing.T) {
 	// The asunset-web client URIs are derived from the tailnet host. Both
 	// the primary (WEB_BASE_URL) and the authoritative fallback
 	// (TAILSCALE_HOST) must reach the keycloak-init container — losing
-	// either reintroduces the localhost-redirect-uri failure mode.
-	if !strings.Contains(overlay, "WEB_BASE_URL: https://${TAILSCALE_HOST}") {
-		t.Error("compose.tailscale.yml must set keycloak-init WEB_BASE_URL=https://${TAILSCALE_HOST}")
+	// either reintroduces the localhost-redirect-uri failure mode. The
+	// ${WEB_BASE_URL:-…} default is the `asunset dev` loopback override:
+	// unset on every real deployment, so the tailnet derivation stands.
+	if !strings.Contains(overlay, "WEB_BASE_URL: ${WEB_BASE_URL:-https://${TAILSCALE_HOST}}") {
+		t.Error("compose.tailscale.yml must set keycloak-init WEB_BASE_URL to ${WEB_BASE_URL:-https://${TAILSCALE_HOST}}")
 	}
 	if !strings.Contains(overlay, "TAILSCALE_HOST: ${TAILSCALE_HOST}") {
 		t.Error("compose.tailscale.yml must pass TAILSCALE_HOST into keycloak-init (init.sh derives + guards on it)")

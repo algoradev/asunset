@@ -31,6 +31,10 @@ func main() {
 		cmdInit(os.Args[2:])
 	case "up":
 		cmdUp()
+	case "dev":
+		cmdDev()
+	case "upgrade":
+		cmdUpgrade()
 	case "down":
 		cmdDown()
 	case "restart":
@@ -59,7 +63,12 @@ func printHelp() {
 	fmt.Println("Commands:")
 	fmt.Println("  init           Generate .env + Caddyfile (interactive wizard, or")
 	fmt.Println("                 unattended via --config/--mode + --yes; see `init --help`)")
-	fmt.Println("  up             Start the stack (docker compose up -d)")
+	fmt.Println("  up             Start the stack (manifest-aware: sequences product")
+	fmt.Println("                 one-shots, gates 'ready' on the product doctor)")
+	fmt.Println("  dev            Zero-prompt loopback integration stack (127.0.0.1:5173,")
+	fmt.Println("                 generated secrets; never prompts, never touches a real deploy)")
+	fmt.Println("  upgrade        Post-vendor-pull roll: rebuild bakes, force-recreate")
+	fmt.Println("                 keycloak-init, both doctors (never touches your git)")
 	fmt.Println("  down           Stop the stack (docker compose down)")
 	fmt.Println("  restart [svc]  Restart one service or the whole stack")
 	fmt.Println("  logs [svc]     Tail logs (all services or just one)")

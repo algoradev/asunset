@@ -301,7 +301,7 @@ func validateConfig(cfg *Config) error {
 			}
 		}
 	case ModeTailscale:
-		if notEmpty(cfg.TailscaleHost) != nil {
+		if !cfg.DevLoopback && notEmpty(cfg.TailscaleHost) != nil {
 			return fmt.Errorf("mode tailscale requires --tailscale-host (asserted, not auto-detected in non-interactive mode)")
 		}
 	case "":

@@ -21,9 +21,10 @@ package main
 //   - and existing .env is found on subsequent runs.
 
 import (
-	"strings"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type Layout struct {
@@ -41,6 +42,12 @@ type Layout struct {
 	// consumer root, or "" if not present (or in standalone layout).
 	// Auto-included as `-f` on every compose invocation when set.
 	ProductOverlay string
+
+	// Manifest is the parsed product.yaml when the consumer ships one
+	// (report 95). Nil otherwise. When present it is the authority for
+	// ProductOverlay and drives secret generation, the per-mode
+	// caddyfile coherence gate, and one-shot sequencing.
+	Manifest *ProductManifest
 
 	// Vendored is true when asunset lives under vendor/asunset/ —
 	// useful for diagnostic messages.
@@ -73,16 +80,33 @@ func detectLayout() (Layout, error) {
 		consumerRoot := filepath.Dir(parent)
 		layout.Vendored = true
 		layout.ConsumerRoot = consumerRoot
-		// The overlay is compose.product.yml at the consumer root by
-		// convention, but consumers with an established deploy layout
-		// (OpsRoom: deploy/compose.prod.yml) point at theirs via
-		// PRODUCT_COMPOSE in .env — report 92 C.3.
+		// Overlay resolution, most-authoritative first:
+		//   1. product.yaml (report 95) — the deploy-contract manifest.
+		//   2. PRODUCT_COMPOSE in .env (report 92 C.3) — the older
+		//      single pointer; still honored, superseded by 1.
+		//   3. compose.product.yml at the consumer root by convention.
+		manifest, err := loadProductManifest(consumerRoot)
+		if err != nil {
+			// Fail loud: a present-but-broken manifest must never
+			// silently degrade to the conventions below.
+			return Layout{}, err
+		}
+		layout.Manifest = manifest
+
 		overlay := filepath.Join(consumerRoot, "compose.product.yml")
-		if custom := productComposeFromEnv(consumerRoot); custom != "" {
+		custom := productComposeFromEnv(consumerRoot)
+		if custom != "" {
 			if !filepath.IsAbs(custom) {
 				custom = filepath.Join(consumerRoot, custom)
 			}
 			overlay = custom
+		}
+		if manifest != nil {
+			overlay = filepath.Join(consumerRoot, manifest.Compose)
+			if custom != "" && custom != overlay {
+				fmt.Fprintf(os.Stderr, "note: product.yaml supersedes PRODUCT_COMPOSE "+
+					"(%s wins; drop the env var)\n", manifest.Compose)
+			}
 		}
 		if fileExists(overlay) {
 			layout.ProductOverlay = overlay

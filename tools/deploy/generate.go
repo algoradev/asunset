@@ -24,6 +24,14 @@ func writeConfigFiles(cfg *Config) error {
 		return fmt.Errorf("write .env: %w", err)
 	}
 
+	// Product-declared secrets (product.yaml env.generate) join the
+	// platform's in the SAME file — one root .env, one writer.
+	if added, err := ensureProductSecrets(layout.EnvPath(), layout.Manifest); err != nil {
+		return err
+	} else if len(added) > 0 {
+		fmt.Printf("generated product secret(s): %s\n", strings.Join(added, ", "))
+	}
+
 	if cfg.IsTLS() || cfg.IsTailscale() {
 		dest := filepath.Join(layout.AsunsetRoot, "infra", "caddy", "Caddyfile")
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {

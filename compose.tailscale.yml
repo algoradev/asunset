@@ -54,12 +54,15 @@ services:
   keycloak:
     command: ["start", "--import-realm", "--http-relative-path=/auth"]
     environment:
-      KC_HOSTNAME: https://${TAILSCALE_HOST}/auth
+      # KC_BASE_URL is the loopback-dev override (`asunset dev`); unset
+      # on every real deployment → derived from the tailnet host as
+      # before.
+      KC_HOSTNAME: ${KC_BASE_URL:-https://${TAILSCALE_HOST}}/auth
       KC_HOSTNAME_STRICT: "true"
       KC_HOSTNAME_STRICT_BACKCHANNEL: "false"
       KC_HTTP_ENABLED: "true"
       KC_PROXY_HEADERS: xforwarded
-      KC_HOSTNAME_ADMIN: https://${TAILSCALE_HOST}/auth
+      KC_HOSTNAME_ADMIN: ${KC_BASE_URL:-https://${TAILSCALE_HOST}}/auth
     ports: !reset []
 
   api:
@@ -96,7 +99,11 @@ services:
   keycloak-init:
     environment:
       KC_AUTH_URL: http://keycloak:8080/auth
-      WEB_BASE_URL: https://${TAILSCALE_HOST}
+      # Overridable for the loopback dev flavor (`asunset dev`): the
+      # same path-multiplexed topology on http://127.0.0.1:5173 with no
+      # tailnet. Unset (every real deployment) → derived exactly as
+      # before.
+      WEB_BASE_URL: ${WEB_BASE_URL:-https://${TAILSCALE_HOST}}
       # Authoritative tailnet host. init.sh derives WEB_BASE_URL from this
       # if the line above ever fails to thread through, and uses it to
       # fail loud rather than ship localhost redirect URIs on a tailnet
