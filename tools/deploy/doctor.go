@@ -231,11 +231,18 @@ func doctorLiveChecks(vars map[string]string) []checkResult {
 	}
 	apiBase := "http://localhost:" + apiPort
 
-	// api liveness gates the rest.
+	// api liveness gates the rest. The api-plane live checks target
+	// asunset's demo api — a foreign-gate consumer profiles it out, so
+	// say that instead of the misleading "stack down".
 	resp, err := client.Get(apiBase + "/healthz")
 	if err != nil {
-		out = append(out, check("api-live", statusSkip,
-			"api not reachable at "+apiBase+" — stack down? live checks skipped"))
+		detail := "api not reachable at " + apiBase + " — stack down? live checks skipped"
+		if layout, lerr := detectLayout(); lerr == nil && layout.Manifest != nil {
+			detail = "foreign-gate consumer (" + layout.Manifest.Name + "): demo api not deployed — " +
+				"api-plane checks apply at the product gate post-adoption; " +
+				"edge-auth-route + static tier are the platform checks here"
+		}
+		out = append(out, check("api-live", statusSkip, detail))
 		return out
 	}
 	resp.Body.Close()

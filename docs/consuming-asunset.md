@@ -159,7 +159,17 @@ Your API mounts the platform and adds itself (template's
   `down_revision`, so subtree pulls re-anchor automatically. Your
   container's entrypoint runs `alembic upgrade head` on every start
   (idempotent); compose ordering is the template's `depends_on` block
-  (postgres healthy, keycloak-init completed, openfga started). Nothing
+  (postgres healthy, keycloak-init completed, openfga started).
+  **Foreign-gate consumers, note the boot-job ownership**: the
+  app-level bootstrap — the merged alembic chain (which creates
+  `organization` and the platform tables) and `bootstrap_openfga`
+  (which creates/pins the FGA store) — belongs to YOUR gate's boot,
+  because you profiled out the demo api whose boot normally does it.
+  Until your gate wires it (your adoption slice), a co-hosted instance
+  legitimately has no `organization` table and no FGA store — those are
+  named doctor warn states, not failures, and there is deliberately no
+  ops one-shot that creates them early (doctor verifies; boot paths
+  mutate). Nothing
   else invokes migrations.
 - **FGA model**: `build_model([*FEATURE_PLATFORM_TYPES, *YOUR_TYPES])`
   — never redefine `user`/`organization`/`team`; reference them as
