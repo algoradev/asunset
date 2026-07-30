@@ -169,7 +169,28 @@ Your API mounts the platform and adds itself (template's
   legitimately has no `organization` table and no FGA store — those are
   named doctor warn states, not failures, and there is deliberately no
   ops one-shot that creates them early (doctor verifies; boot paths
-  mutate). Nothing
+  mutate).
+
+  > **Amended 2026-07-30 (R1 confirm, thread ef1a190a447b):** the
+  > "merged chain via `platform_head()`" language above describes the
+  > **shared-Base consumer** (product tables on asunset's Base, same
+  > DB — the Notes/centum shape). The **two-DB consumer** (own product
+  > postgres, own schema mechanism — the OpsRoom shape) is equally
+  > supported and does NOT adopt alembic for its product schema: its
+  > boot job runs **asunset's own chain** against the **identity DB**
+  > (`alembic upgrade head` on the vendored `apps/api/alembic` tree),
+  > and the product schema evolves by the product's own mechanism.
+  > Three facts to plan around: (1) `alembic/env.py` imports
+  > `asunset_api`, so either install the vendored `apps/api` as a path
+  > dep in whatever runs the chain, or run it as a one-shot of the
+  > vendored demo-api image (`compose run --rm api alembic upgrade
+  > head`) — both supported, consumer's choice; (2) the chain's head
+  > currently carries ONE demo table (`note`, created in 0001 — inert,
+  > empty, RLS-guarded, only the profiled-out demo api touches it);
+  > splitting demo tables out of the platform chain would rewrite
+  > shipped migration history, so it stays, named — trigger to revisit:
+  > a consumer's compliance table-inventory objects; (3) run the chain
+  > with the ADMIN/OWNER DB URL, as the demo api's entrypoint does. Nothing
   else invokes migrations.
 - **FGA model**: `build_model([*FEATURE_PLATFORM_TYPES, *YOUR_TYPES])`
   — never redefine `user`/`organization`/`team`; reference them as
