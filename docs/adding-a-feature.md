@@ -137,8 +137,15 @@ cd ../web && npx tsc --noEmit
 ```
 
 For tests of *model semantics* (userset derivations, role inheritance)
-use the real thing: `asunset_core.testing.ephemeral_openfga(YOUR_MODEL)`
-— one disposable container, session-scoped.
+use the real thing — an ASYNC context manager, whole session under one
+loop (one disposable container per use):
+
+```python
+async def main():
+    async with ephemeral_openfga(YOUR_MODEL) as authorizer:
+        report = await reconcile_features(authorizer, manifest, org, dry_run=True)
+asyncio.run(main())
+```
 
 ## 6. Ship & scope
 

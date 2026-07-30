@@ -331,7 +331,9 @@ already-a-member match; the deck resolution seam).
   [`session-token-mint-spec.md`](session-token-mint-spec.md). `sub` is
   always the human; agents are never service accounts.
 - **Testing** — `asunset_core.testing`: `StaticAuthorizer` for fast
-  endpoint tests, `ephemeral_openfga(YOUR_MODEL)` for model semantics;
+  endpoint tests, `async with ephemeral_openfga(YOUR_MODEL)` for model
+  semantics (async context manager — drive the whole session under one
+  `asyncio.run`);
   the route-test skeleton is in the recipe; matrix skeletons generate
   via `python -m asunset_core.features.matrix`.
 

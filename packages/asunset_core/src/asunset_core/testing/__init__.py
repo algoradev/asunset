@@ -41,9 +41,9 @@ import shutil
 import subprocess
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Iterator
+from typing import Any, AsyncIterator, Iterator
 
 from asunset_core.auth.authorizer import AccessPath, Tuple
 
@@ -189,17 +189,30 @@ def allow_feature_for_org(authorizer: Any, org_id: Any, key: str, relation: str 
 # --- ephemeral real OpenFGA ------------------------------------------------
 
 
-@contextmanager
-def ephemeral_openfga(
+@asynccontextmanager
+async def ephemeral_openfga(
     authorization_model: dict[str, Any],
     *,
     image: str = "openfga/openfga:v1.6",
     api_key: str = "test-key",
-) -> Iterator[Any]:
+) -> AsyncIterator[Any]:
     """Boot a disposable OpenFGA, bootstrap the given model, yield a live
     OpenFGAAuthorizer. Loopback-only ephemeral port; container removed on
     exit. Raises RuntimeError if docker is unavailable — wrap in a
-    pytest.skip in consumer conftests if docker is optional there."""
+    pytest.skip in consumer conftests if docker is optional there.
+
+    ASYNC context manager — drive the whole session under ONE loop::
+
+        async def main():
+            async with ephemeral_openfga(MODEL) as authorizer:
+                report = await reconcile_features(authorizer, manifest, org,
+                                                  dry_run=True)
+        asyncio.run(main())
+
+    (It was briefly a sync contextmanager; that shape was structurally
+    broken — the openfga-sdk's aiohttp transport must be constructed and
+    used under a running loop, while the sync body's own asyncio.run
+    calls forbade one. Found by atlas wiring cluster C, 2026-07-30.)"""
     from asunset_core.auth.authorizer import OpenFGAAuthorizer, make_openfga_client
     from asunset_core.config import CoreSettings
     from asunset_core.fga.bootstrap import bootstrap_openfga
@@ -243,33 +256,34 @@ def ephemeral_openfga(
             openfga_api_key=api_key,
         )
 
-        async def _ready_and_bootstrap():
-            import httpx
+        # Readiness + bootstrap + client construction + use + close all
+        # happen under the CALLER'S loop — the whole point of the async
+        # shape: aiohttp binds its transport to the loop it's built in.
+        import httpx
 
-            deadline = time.monotonic() + 60
-            last: object = None
-            async with httpx.AsyncClient(
-                base_url=settings.openfga_api_url,
-                headers={"Authorization": f"Bearer {api_key}"},
-                timeout=3.0,
-            ) as client:
-                while time.monotonic() < deadline:
-                    try:
-                        if (await client.get("/stores")).status_code == 200:
-                            break
-                        last = "non-200"
-                    except Exception as e:  # noqa: BLE001
-                        last = e
-                    await asyncio.sleep(0.4)
-                else:
-                    raise RuntimeError(f"openfga not ready: {last}")
-            return await bootstrap_openfga(settings, authorization_model)
+        deadline = time.monotonic() + 60
+        last: object = None
+        async with httpx.AsyncClient(
+            base_url=settings.openfga_api_url,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=3.0,
+        ) as probe:
+            while time.monotonic() < deadline:
+                try:
+                    if (await probe.get("/stores")).status_code == 200:
+                        break
+                    last = "non-200"
+                except Exception as e:  # noqa: BLE001
+                    last = e
+                await asyncio.sleep(0.4)
+            else:
+                raise RuntimeError(f"openfga not ready: {last}")
 
-        store_id, model_id = asyncio.run(_ready_and_bootstrap())
+        store_id, model_id = await bootstrap_openfga(settings, authorization_model)
         client = make_openfga_client(settings, store_id, model_id)
         try:
             yield OpenFGAAuthorizer(client, store_id, model_id)
         finally:
-            asyncio.run(client.close())
+            await client.close()
     finally:
         subprocess.run(["docker", "rm", "-f", "-v", name], capture_output=True)
