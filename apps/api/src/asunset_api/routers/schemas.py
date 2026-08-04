@@ -128,6 +128,10 @@ class TeamCreateIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
 
 
+class TeamRenameIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
 class TeamMemberOut(BaseModel):
     user: UserOut
     role: MemberRole

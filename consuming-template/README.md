@@ -261,6 +261,14 @@ optional, not required. The new user signs in once — Keycloak
 immediately forces them to set their own password, then redirects
 them into the app already a member.
 
+**Expected first-login step (both modes, intended behavior):** invited
+users are created with their email only — the platform never guesses
+names — so Keycloak's profile requirements send them through a short
+complete-your-profile step (first/last name) right after they set
+their password. Invite-flow UIs should set that expectation ("you'll
+be asked to complete your profile on first sign-in") rather than treat
+it as an error. (Ruled intended, 2026-08-04, rook's swat-01 letter Q3.)
+
 This means the app-side notifier (below) must be configured for the
 welcome mail to actually send: `NOTIFIER_BACKEND=resend` +
 `RESEND_API_KEY`. With the default `log` backend the mail is only

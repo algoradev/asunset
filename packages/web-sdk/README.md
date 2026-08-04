@@ -189,6 +189,7 @@ takes the vars listed, and the invalidation happens inside the hook:
 | `useUpdateOrgMemberRole` | `{ userId, newRole }` | `orgMembers` |
 | `useRemoveOrgMember` | `{ userId }` | `orgMembers` |
 | `useCreateTeam` | `{ name }` | `teams` |
+| `useRenameTeam` | `{ teamId, name }` | `teams` |
 | `useDeleteTeam` | `{ teamId }` | `teams` |
 | `useAddTeamMember` | `{ teamId, email, role }` (lookup→add composite) | `teamMembers(teamId)` |
 | `useUpdateTeamMemberRole` | `{ teamId, userId, newRole }` | `teamMembers(teamId)` |

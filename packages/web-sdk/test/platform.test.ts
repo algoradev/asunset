@@ -29,6 +29,7 @@ describe("createPlatformClient", () => {
     await platform.meFeatures(f);
     await platform.bootstrap(f, { org_name: "Acme" });
     await platform.updateOrgMemberRole(f, "u1", "admin");
+    await platform.renameTeam(f, "t9", { name: "New Name" });
     await platform.removeTeamMember(f, "t1", "u2");
 
     expect(call(spy, 0).url).toBe("https://api.test/platform/me");
@@ -41,7 +42,11 @@ describe("createPlatformClient", () => {
     expect(patch.url).toBe("https://api.test/orgs/current/members/u1");
     expect(patch.init.method).toBe("PATCH");
     expect(patch.init.body).toBe(`{"role":"admin"}`);
-    const del = call(spy, 4);
+    const ren = call(spy, 4);
+    expect(ren.url).toBe("https://api.test/teams/t9");
+    expect(ren.init.method).toBe("PATCH");
+    expect(ren.init.body).toBe(`{"name":"New Name"}`);
+    const del = call(spy, 5);
     expect(del.url).toBe("https://api.test/teams/t1/members/u2");
     expect(del.init.method).toBe("DELETE");
   });

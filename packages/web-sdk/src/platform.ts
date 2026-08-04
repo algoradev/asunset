@@ -186,6 +186,12 @@ export function createPlatformClient(core: ApiCore) {
     listTeams: (f: Fetcher) => request<Team[]>("/teams", {}, f),
     createTeam: (f: Fetcher, body: { name: string }) =>
       request<Team>("/teams", { method: "POST", body: JSON.stringify(body) }, f),
+    renameTeam: (f: Fetcher, id: string, body: { name: string }) =>
+      request<Team>(
+        `/teams/${id}`,
+        { method: "PATCH", body: JSON.stringify(body) },
+        f,
+      ),
     deleteTeam: (f: Fetcher, id: string) =>
       request<void>(`/teams/${id}`, { method: "DELETE" }, f),
     listTeamMembers: (f: Fetcher, id: string) =>

@@ -24,7 +24,7 @@ from asunset_core.auth.keycloak_admin import (
 )
 from asunset_core.auth.oidc import get_current_principal
 from asunset_core.auth.principal import Principal
-from asunset_core.db.models import AppUser, MemberRole, Organization, OrgMember, TeamMember
+from asunset_core.db.models import AppUser, MemberRole, Organization, OrgMember, Team, TeamMember
 from asunset_core.logging import get_logger
 from asunset_core.notifications import EmailService
 from asunset_api.config import Settings, get_settings
@@ -447,6 +447,10 @@ async def remove_member(
     prev_role = member.role
     await session.delete(member)
 
+    teams_cascaded = await _cascade_team_memberships(
+        session, authorizer, org.org_id, user_id
+    )
+
     deletes = [Tuple(user=f"user:{user_id}", relation="member", object=f"organization:{org.org_id}")]
     if prev_role == MemberRole.admin:
         deletes.append(
@@ -463,6 +467,40 @@ async def remove_member(
         permission="org_admin",
         payload={"prev_role": prev_role.value},
     )
+
+
+async def _cascade_team_memberships(session, authorizer, org_id, user_id) -> int:
+    """Remove ALL of a user's team memberships in this org (rows + FGA).
+
+    Called on org-member removal AND invite revoke: leaving TeamMember
+    rows/tuples behind is harmless today (access dies at get_current_org)
+    but becomes a latent authority leak the day any consumer grants
+    resources to team:X#member (rook's swat-01 letter, P2). Platform
+    correctness: org membership is the root — when it goes, the team
+    memberships under it go in the same transaction.
+    """
+    rows = (
+        await session.execute(
+            select(TeamMember)
+            .join(Team, Team.id == TeamMember.team_id)
+            .where(Team.org_id == org_id, TeamMember.user_id == user_id)
+        )
+    ).scalars().all()
+    if not rows:
+        return 0
+    deletes = []
+    for tm in rows:
+        deletes.append(
+            Tuple(user=f"user:{user_id}", relation="member", object=f"team:{tm.team_id}")
+        )
+        if tm.role == MemberRole.admin:
+            deletes.append(
+                Tuple(user=f"user:{user_id}", relation="admin", object=f"team:{tm.team_id}")
+            )
+        await session.delete(tm)
+    await session.flush()
+    await authorizer.write(deletes=deletes)
+    return len(rows)
 
 
 # --- invite flow -----------------------------------------------------
@@ -866,6 +904,10 @@ async def revoke_invite(
     prev_role = member.role
     await session.delete(member)
 
+    teams_cascaded = await _cascade_team_memberships(
+        session, authorizer, org.org_id, user_id
+    )
+
     deletes = [
         Tuple(
             user=f"user:{user_id}",
@@ -890,5 +932,5 @@ async def revoke_invite(
         resource_id=user_id,
         resource_label=user_email,
         permission="org_admin",
-        payload={"prev_role": prev_role.value},
+        payload={"teams_cascaded": teams_cascaded, "prev_role": prev_role.value},
     )

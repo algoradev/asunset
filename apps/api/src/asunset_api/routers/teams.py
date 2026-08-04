@@ -28,6 +28,7 @@ from asunset_api.routers.schemas import (
     TeamMemberAddIn,
     TeamMemberOut,
     TeamOut,
+    TeamRenameIn,
     UserOut,
 )
 
@@ -111,6 +112,42 @@ async def create_team(
         resource_label=team.name,
         permission="org_admin",
         payload={"creator_auto_admin": True},
+    )
+    return team
+
+
+@router.patch("/{team_id}", response_model=TeamOut)
+async def rename_team(
+    team_id: UUID,
+    body: TeamRenameIn,
+    session: AsyncSession = Depends(get_db),
+    org: OrgContext = Depends(require_org_admin),
+    audit: AuditSink = Depends(get_audit_sink),
+) -> Team:
+    """Rename a team in place — roster and FGA tuples untouched.
+
+    The alternative (delete + recreate) destroys both, which is why this
+    endpoint exists (rook's swat-01 request letter). No FGA change:
+    tuples reference the team id, never the name.
+    """
+    team = (
+        await session.execute(select(Team).where(Team.id == team_id))
+    ).scalar_one_or_none()
+    if team is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "team not found")
+
+    prev_name = team.name
+    team.name = body.name
+    await session.flush()
+
+    await audit.emit(
+        EventType.TEAM_RENAMED,
+        action="update",
+        resource_type="team",
+        resource_id=team.id,
+        resource_label=team.name,
+        permission="org_admin",
+        payload={"prev_name": prev_name, "new_name": team.name},
     )
     return team
 

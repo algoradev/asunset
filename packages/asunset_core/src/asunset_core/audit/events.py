@@ -36,6 +36,7 @@ class EventType(str, enum.Enum):
     ORG_INVITE_RESENT = "org.invite_resent"
     ORG_INVITE_REVOKED = "org.invite_revoked"
     TEAM_CREATED = "team.created"
+    TEAM_RENAMED = "team.renamed"
     TEAM_DELETED = "team.deleted"
     TEAM_MEMBER_ADDED = "team.member_added"
     TEAM_MEMBER_REMOVED = "team.member_removed"

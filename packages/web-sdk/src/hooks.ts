@@ -199,6 +199,14 @@ export function createPlatformHooks(client: PlatformClient) {
         () => [platformKeys.teams],
         cb,
       ),
+    useRenameTeam: (
+      cb?: MutationCallbacks<Team, { teamId: string; name: string }>,
+    ) =>
+      usePlatformMutation(
+        (f, vars) => client.renameTeam(f, vars.teamId, { name: vars.name }),
+        () => [platformKeys.teams],
+        cb,
+      ),
     useDeleteTeam: (cb?: MutationCallbacks<void, { teamId: string }>) =>
       usePlatformMutation(
         (f, vars) => client.deleteTeam(f, vars.teamId),
