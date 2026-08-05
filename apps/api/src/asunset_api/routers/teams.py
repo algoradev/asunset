@@ -215,6 +215,9 @@ async def list_team_members(
         select(TeamMember, AppUser)
         .join(AppUser, AppUser.id == TeamMember.user_id)
         .where(TeamMember.team_id == team_id)
+        # Deterministic platform default — unordered rosters dance
+        # between refetches and break pagination (rook, live use).
+        .order_by(AppUser.display_name, AppUser.id)
     )
     return [
         TeamMemberOut(

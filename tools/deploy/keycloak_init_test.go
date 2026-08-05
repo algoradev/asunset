@@ -73,9 +73,11 @@ func TestKeycloakInitDerivesAndGuardsWebBaseURL(t *testing.T) {
 	if !strings.Contains(script, "http://localhost*") || !strings.Contains(script, "FATAL") {
 		t.Error("init.sh must fail loud (FATAL) if a remote deploy would leave localhost redirect URIs")
 	}
-	// Still performs the actual client rewrite.
-	if !strings.Contains(script, `redirectUris=[\"$WEB_BASE_URL/*\"]`) {
-		t.Error("init.sh must rewrite asunset-web redirectUris to the resolved WEB_BASE_URL")
+	// Still performs the actual client rewrite (base URL always first in
+	// the list; KC_DEV_WEB_ORIGINS appends — see the dev-origins test).
+	if !strings.Contains(script, `WEB_REDIRECTS="\"$WEB_BASE_URL/*\""`) ||
+		!strings.Contains(script, `redirectUris=[$WEB_REDIRECTS]`) {
+		t.Error("init.sh must rewrite asunset-web redirectUris from the resolved WEB_BASE_URL")
 	}
 }
 
@@ -87,5 +89,26 @@ func TestRealmExportShipsLocalhostWebDefaults(t *testing.T) {
 	realm := readRepoFile(t, "infra/keycloak/realm-export.json")
 	if !strings.Contains(realm, "localhost:5173") {
 		t.Skip("realm export no longer ships localhost:5173 — revisit the keycloak-init guard rationale")
+	}
+}
+
+func TestDevWebOriginsKnobCoversAllThreeLists(t *testing.T) {
+	// Dev-against-live (rook's swat-01 flag): KC_DEV_WEB_ORIGINS must land
+	// each origin in ALL THREE Keycloak validation lists — redirect,
+	// web-origin, and post-logout (the ##-separated attribute) — or
+	// sign-out 400s. And compose must actually pass the var through.
+	script := readRepoFile(t, "infra/keycloak/init.sh")
+	for _, must := range []string{
+		"KC_DEV_WEB_ORIGINS",
+		`WEB_REDIRECTS="$WEB_REDIRECTS,\"$_o/*\""`,
+		`WEB_ORIGINS="$WEB_ORIGINS,\"$_o\""`,
+		`WEB_POST_LOGOUT="$WEB_POST_LOGOUT##$_o/*"`,
+	} {
+		if !strings.Contains(script, must) {
+			t.Errorf("init.sh missing dev-origin handling: %q", must)
+		}
+	}
+	if !strings.Contains(readRepoFile(t, "compose.yml"), "KC_DEV_WEB_ORIGINS: ${KC_DEV_WEB_ORIGINS:-}") {
+		t.Error("compose.yml must pass KC_DEV_WEB_ORIGINS into keycloak-init")
 	}
 }

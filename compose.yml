@@ -122,6 +122,9 @@ services:
       # KC_AUTH_URL + WEB_BASE_URL default unset here; the tailscale
       # overlay sets KC_AUTH_URL=http://keycloak:8080/auth and both TLS
       # overlays set WEB_BASE_URL to the public hostname.
+      # Dev-against-live: comma-separated extra origins for asunset-web
+      # (vite HMR against a live stack). Unset on production instances.
+      KC_DEV_WEB_ORIGINS: ${KC_DEV_WEB_ORIGINS:-}
       KC_SMTP_HOST: ${KC_SMTP_HOST:-}
       KC_SMTP_PORT: ${KC_SMTP_PORT:-}
       KC_SMTP_USER: ${KC_SMTP_USER:-}

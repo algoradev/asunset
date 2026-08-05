@@ -21,11 +21,12 @@ from asunset_core.db.models import (
     Team,
     TeamMember,
 )
+from asunset_core.auth.principal import Principal
 from asunset_core.testing import StaticAuthorizer
 from asunset_api.routers.deps import OrgContext
 from asunset_api.routers.orgs import _cascade_team_memberships
 from asunset_api.routers.schemas import TeamRenameIn
-from asunset_api.routers.teams import rename_team
+from asunset_api.routers.teams import list_team_members, rename_team
 
 from .conftest import SeededDb
 
@@ -153,5 +154,35 @@ async def test_cascade_noop_when_no_team_memberships(rls_db: SeededDb) -> None:
             n = await _cascade_team_memberships(session, authz, org.id, user.id)
             assert n == 0
             assert authz.deletes == []
+    finally:
+        await engine.dispose()
+
+
+async def test_team_roster_is_deterministically_ordered(rls_db: SeededDb) -> None:
+    engine, maker = _sessionmaker(rls_db)
+    try:
+        async with maker() as session:
+            org = Organization(id=uuid4(), name="Order Org")
+            team = Team(id=uuid4(), org_id=org.id, name="Ordered")
+            users = [
+                AppUser(id=uuid4(), email=f"{n}-{uuid4().hex[:6]}@t", display_name=n)
+                for n in ("Carol", "Alice", "Bob")
+            ]
+            session.add_all([org, team, *users])
+            await session.flush()
+            session.add_all(
+                TeamMember(team_id=team.id, user_id=u.id, role=MemberRole.member)
+                for u in users
+            )
+            await session.flush()
+
+            admin = Principal(user_id=users[0].id, email="a@t", display_name="A")
+            out = await list_team_members(
+                team_id=team.id,
+                principal=admin,
+                org=OrgContext(org_id=org.id, role=MemberRole.admin),
+                session=session,
+            )
+            assert [m.user.display_name for m in out] == ["Alice", "Bob", "Carol"]
     finally:
         await engine.dispose()

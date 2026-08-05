@@ -207,6 +207,7 @@ async def list_members(
         select(OrgMember, AppUser)
         .join(AppUser, AppUser.id == OrgMember.user_id)
         .where(OrgMember.org_id == org.org_id)
+        .order_by(AppUser.display_name, AppUser.id)
     )
 
     if not org.is_admin:

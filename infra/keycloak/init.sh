@@ -145,13 +145,37 @@ esac
 
 if [ -n "$WEB_BASE_URL" ]; then
   WEB_UUID="$("$KCADM" get clients -r "$KEYCLOAK_REALM" -q clientId=asunset-web --fields id --format csv --noquotes | tr -d '\r\n')"
+
+  # Optional dev-against-live origins (KC_DEV_WEB_ORIGINS, comma-separated
+  # bare origins, e.g. "http://localhost:7501"). Sanctioned so a product's
+  # vite dev server can run true HMR against a live stack WITHOUT the
+  # manual kcadm edits being wiped by the next init re-run. Keycloak
+  # validates three SEPARATE lists (redirect, web-origin, post-logout —
+  # the third bites last, as field experience showed), so each origin
+  # lands in all three or the flow 400s at sign-out.
+  WEB_REDIRECTS="\"$WEB_BASE_URL/*\""
+  WEB_ORIGINS="\"$WEB_BASE_URL\""
+  WEB_POST_LOGOUT="$WEB_BASE_URL/*"
+  if [ -n "${KC_DEV_WEB_ORIGINS:-}" ]; then
+    OLDIFS=$IFS; IFS=','
+    for _o in $KC_DEV_WEB_ORIGINS; do
+      _o=$(echo $_o)  # trim surrounding whitespace
+      [ -z "$_o" ] && continue
+      WEB_REDIRECTS="$WEB_REDIRECTS,\"$_o/*\""
+      WEB_ORIGINS="$WEB_ORIGINS,\"$_o\""
+      WEB_POST_LOGOUT="$WEB_POST_LOGOUT##$_o/*"
+    done
+    IFS=$OLDIFS
+    echo "keycloak-init: WARNING — dev web origins on asunset-web: $KC_DEV_WEB_ORIGINS (dev-against-live; unset KC_DEV_WEB_ORIGINS on production instances)"
+  fi
+
   "$KCADM" update "clients/$WEB_UUID" \
     -r "$KEYCLOAK_REALM" \
     -s "rootUrl=$WEB_BASE_URL" \
     -s "baseUrl=$WEB_BASE_URL" \
-    -s "redirectUris=[\"$WEB_BASE_URL/*\"]" \
-    -s "webOrigins=[\"$WEB_BASE_URL\"]" \
-    -s "attributes.\"post.logout.redirect.uris\"=$WEB_BASE_URL/*"
+    -s "redirectUris=[$WEB_REDIRECTS]" \
+    -s "webOrigins=[$WEB_ORIGINS]" \
+    -s "attributes.\"post.logout.redirect.uris\"=$WEB_POST_LOGOUT"
   echo "keycloak-init: asunset-web URIs → $WEB_BASE_URL"
 
   # When the deployment terminates TLS (TLS or tailscale modes both set
