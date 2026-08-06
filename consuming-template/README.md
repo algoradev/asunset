@@ -199,6 +199,14 @@ revision: str = "1000"
 down_revision: str | None = platform_head()
 ```
 
+> **Two-DB consumers (own product postgres): do NOT use this anchor.**
+> `platform_head()` expresses a same-database dependency — it is for
+> shared-Base consumers whose product tables live in asunset's DB. If
+> your product runs its own postgres, your chain stands alone from a
+> baseline revision (stamp-on-existing, create-on-fresh), and asunset's
+> chain runs separately against the identity DB per §4 of the consuming
+> guide. Anchoring across two databases fails on first upgrade.
+
 This way every `git subtree pull` of `vendor/asunset/` automatically
 picks up whatever the new platform head is — you don't bump a literal
 revision id by hand, and you can't silently chain to a stale revision

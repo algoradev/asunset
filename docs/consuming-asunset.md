@@ -180,6 +180,17 @@ Your API mounts the platform and adds itself (template's
   > boot job runs **asunset's own chain** against the **identity DB**
   > (`alembic upgrade head` on the vendored `apps/api/alembic` tree),
   > and the product schema evolves by the product's own mechanism.
+> **Amended 2026-08-06 (migrations coordination, thread a99e9ee8b932,
+> Avi-called):** "the product's own mechanism" may be — and for any
+> product beyond trivial size should be — a **standalone product alembic
+> chain** in the product DB, applied by the product's own entrypoint
+> (`alembic upgrade head` on boot, the template's flow). The one rule:
+> a two-DB consumer's chain **never anchors to `platform_head()`** —
+> that helper expresses a same-database dependency and exists for
+> shared-Base consumers only; a two-DB chain starts at its own baseline
+> revision, with the divergence-from-template justified in the first
+> migration's docstring so nobody "fixes" it back. One migrator per
+> database (the one-bootstrapper rule applied to schema).
   > Three facts to plan around: (1) `alembic/env.py` imports
   > `asunset_api`, so either install the vendored `apps/api` as a path
   > dep in whatever runs the chain, or run it as a one-shot of the
