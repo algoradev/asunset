@@ -176,7 +176,10 @@ Your API mounts the platform and adds itself (template's
   > **shared-Base consumer** (product tables on asunset's Base, same
   > DB — the Notes/centum shape). The **two-DB consumer** (own product
   > postgres, own schema mechanism — the OpsRoom shape) is equally
-  > supported and does NOT adopt alembic for its product schema: its
+  > supported and does NOT adopt alembic for its product schema
+  > *(this clause SUPERSEDED 2026-08-06 — see the amendment below: a
+  > standalone product chain is now the recommended mechanism; the
+  > identity-DB and no-anchor clauses of this amendment stand)*: its
   > boot job runs **asunset's own chain** against the **identity DB**
   > (`alembic upgrade head` on the vendored `apps/api/alembic` tree),
   > and the product schema evolves by the product's own mechanism.
