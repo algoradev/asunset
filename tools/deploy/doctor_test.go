@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // Every static doctor check exists because a real incident produced it —
 // each test names its incident.
@@ -15,10 +18,10 @@ func results(vars map[string]string) map[string]checkResult {
 
 func healthyPlain() map[string]string {
 	return map[string]string{
-		"ASUNSET_MODE":          "plain",
-		"KEYCLOAK_PUBLIC_URL":   "http://localhost:8080",
-		"VITE_KEYCLOAK_URL":     "http://localhost:8080",
-		"KEYCLOAK_INTERNAL_URL": "http://keycloak:8080",
+		"ASUNSET_MODE":                  "plain",
+		"KEYCLOAK_PUBLIC_URL":           "http://localhost:8080",
+		"VITE_KEYCLOAK_URL":             "http://localhost:8080",
+		"KEYCLOAK_INTERNAL_URL":         "http://keycloak:8080",
 		"SESSION_TOKEN_PRIVATE_KEY_B64": "abc",
 	}
 }
@@ -98,5 +101,37 @@ func TestEphemeralSessionKeyWarns(t *testing.T) {
 	delete(v, "SESSION_TOKEN_PRIVATE_KEY_B64")
 	if r := results(v)["session-key"]; r.Status != statusWarn {
 		t.Errorf("missing session key should WARN, got %s", r.Status)
+	}
+}
+
+func TestAsunsetEnvStaticCheck(t *testing.T) {
+	find := func(vars map[string]string) checkResult {
+		for _, r := range doctorStaticChecks(vars) {
+			if r.Name == "asunset-env" {
+				return r
+			}
+		}
+		t.Fatal("asunset-env check missing")
+		return checkResult{}
+	}
+	if r := find(map[string]string{"ASUNSET_ENV": "prod"}); r.Status != statusOK {
+		t.Errorf("prod should be ok, got %s (%s)", r.Status, r.Detail)
+	}
+	if r := find(map[string]string{}); r.Status != statusOK {
+		t.Errorf("unset should be ok (compose defaults dev), got %s", r.Status)
+	}
+	// The named incident: "production" is not in the Literal and kills
+	// the api at boot — doctor must catch it PRE-deploy.
+	if r := find(map[string]string{"ASUNSET_ENV": "production"}); r.Status != statusFail {
+		t.Errorf("invalid value must FAIL, got %s (%s)", r.Status, r.Detail)
+	}
+}
+
+func TestComposeDefaultsAsunsetEnv(t *testing.T) {
+	// The 663c527331f7 trap: defaultless ${ASUNSET_ENV} renders a
+	// present-but-empty env var, which pydantic refuses (the field's
+	// own default never applies). The compose default is the fix.
+	if !strings.Contains(readRepoFile(t, "compose.yml"), "ASUNSET_ENV: ${ASUNSET_ENV:-dev}") {
+		t.Error("compose.yml must default ASUNSET_ENV (empty-present kills the api at boot)")
 	}
 }

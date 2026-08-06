@@ -65,6 +65,24 @@ func doctorStaticChecks(vars map[string]string) []checkResult {
 	isTailscale := mode == "tailscale"
 	isTLS := strings.HasPrefix(mode, "tls-")
 
+	// ASUNSET_ENV: the api types it Literal["dev","staging","prod"] and
+	// refuses anything else at boot. A missing line is fine (compose
+	// defaults to dev since the 663c527331f7 trap); a present-but-wrong
+	// value — "production", "" — kills the api with a pydantic error the
+	// operator meets only after deploy. Named incident: kestrel's
+	// overlay shipped "production" through the whole adoption, masked
+	// only because init writes the line.
+	switch env := get("ASUNSET_ENV"); env {
+	case "dev", "staging", "prod":
+		out = append(out, check("asunset-env", statusOK, "ASUNSET_ENV="+env))
+	case "":
+		out = append(out, check("asunset-env", statusOK,
+			"ASUNSET_ENV unset — compose defaults to dev"))
+	default:
+		out = append(out, check("asunset-env", statusFail, fmt.Sprintf(
+			"ASUNSET_ENV=%q is not one of dev|staging|prod — asunset-api will refuse to boot (pydantic Literal)", env)))
+	}
+
 	// The classic: the SPA and the API must agree on the public issuer
 	// base (a stale VITE_KEYCLOAK_URL bakes the wrong URL into the web
 	// bundle; a stale KEYCLOAK_PUBLIC_URL 401s every API request).

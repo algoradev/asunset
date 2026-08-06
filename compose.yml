@@ -219,7 +219,7 @@ services:
       # POST /platform/features/reconcile dry_run:true → apply.
       - ./apps/api/features.yaml:/app/features.yaml:ro
     environment:
-      ASUNSET_ENV: ${ASUNSET_ENV}
+      ASUNSET_ENV: ${ASUNSET_ENV:-dev}
       APP_DB_URL: postgresql+asyncpg://${APP_DB_USER}:${APP_DB_PASSWORD}@postgres:5432/${APP_DB_NAME}
       APP_ADMIN_DB_URL: postgresql+asyncpg://${APP_DB_OWNER}:${APP_DB_OWNER_PASSWORD}@postgres:5432/${APP_DB_NAME}
       # Read by the Alembic initial migration to GRANT on freshly-created tables.
